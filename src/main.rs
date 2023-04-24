@@ -9,11 +9,11 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Window Title",
         native_options,
-        Box::new(|cc| Box::new(MyEguiApp::new(cc))),
+        Box::new(|cc| Box::new(App::new(cc))),
     )
 }
 
-struct MyEguiApp {
+struct App {
     mpos: Pos2,
 
     world: World,
@@ -27,7 +27,7 @@ struct MyEguiApp {
     frame_time: std::time::Instant,
 }
 
-impl MyEguiApp {
+impl App {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         // Customize egui here with cc.egui_ctx.set_fonts and cc.egui_ctx.set_visuals.
         // Restore app state using cc.storage (requires the "persistence" feature).
@@ -35,9 +35,9 @@ impl MyEguiApp {
         // for e.g. egui::PaintCallback.
         let n = 0;
         Self {
-            mpos: pos2(0., 0.),
+            mpos: pos2(0., 0.5),
 
-            world: World::new(n),
+            world: World::menu(2),
 
             fixed: false,
             target: 0,
@@ -151,12 +151,15 @@ struct Zone {
     centre: Pos2,
     radius: f32,
     inverted: bool,
-    off_col: egui::Color32,
-    on_col: egui::Color32,
-    is_in: bool,
+    persistent: bool,
+    empty_col: egui::Color32,
+    held_col: egui::Color32,
+    set_col: Option<egui::Color32>,
+    state: ZoneState,
     last_out: std::time::Instant,
     time_req: std::time::Duration,
     action: Action,
+    label: Option<String>,
 }
 impl Zone {
     fn new_goal(centre: Pos2, radius: f32, time_req: std::time::Duration) -> Self {
@@ -164,12 +167,15 @@ impl Zone {
             centre,
             radius,
             inverted: false,
-            off_col: egui::Color32::LIGHT_RED,
-            on_col: egui::Color32::LIGHT_GREEN,
-            is_in: false,
+            persistent: false,
+            empty_col: egui::Color32::LIGHT_RED,
+            held_col: egui::Color32::LIGHT_GREEN,
+            set_col: None,
+            state: ZoneState::Empty,
             last_out: std::time::Instant::now(),
             time_req,
             action: Action::Point,
+            label: None,
         }
     }
     fn new_fail(centre: Pos2, radius: f32, time_req: std::time::Duration) -> Self {
@@ -177,44 +183,81 @@ impl Zone {
             centre,
             radius,
             inverted: true,
-            off_col: egui::Color32::DARK_GRAY,
-            on_col: egui::Color32::DARK_RED.gamma_multiply(0.2),
-            is_in: false,
+            persistent: false,
+            empty_col: egui::Color32::DARK_GRAY,
+            held_col: egui::Color32::DARK_RED.gamma_multiply(0.2),
+            set_col: None,
+            state: ZoneState::Empty,
             last_out: std::time::Instant::now(),
             time_req,
             action: Action::Reset,
+            label: None,
+        }
+    }
+    fn new_option(centre: Pos2, radius: f32, action: Action, label: String) -> Self {
+        Self {
+            centre,
+            radius,
+            inverted: false,
+            persistent: true,
+            empty_col: egui::Color32::LIGHT_BLUE,
+            held_col: egui::Color32::LIGHT_GREEN,
+            set_col: Some(egui::Color32::GOLD),
+            state: ZoneState::Empty,
+            last_out: std::time::Instant::now(),
+            time_req: std::time::Duration::from_secs_f32(1.5),
+            action,
+            label: Some(label),
         }
     }
 
     fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2) {
+        let centre = trans(self.centre);
+        let radius = self.radius * trans(pos2(1., 0.)).distance(trans(pos2(0., 0.)));
         ui.painter().circle_stroke(
-            trans(self.centre),
-            self.radius * trans(pos2(1., 0.)).distance(trans(pos2(0., 0.))),
+            centre,
+            radius,
             (
                 5.,
-                if self.is_in {
-                    self.on_col
-                } else {
-                    self.off_col
+                match self.state {
+                    ZoneState::Empty => self.empty_col,
+                    ZoneState::Held => self.held_col,
+                    ZoneState::Set => self.set_col.expect("No set colour"),
                 },
             ),
         );
+        if let Some(label) = &self.label {
+            ui.put(
+                egui::Rect::from_center_size(centre, 1.5 * vec2(radius, radius)),
+                egui::widgets::Label::new(label),
+            );
+        }
     }
 
     fn is_complete(&mut self, snake: &Snake) -> Option<Action> {
         if self.inverted
             != (0..snake.order + 1).all(|n| (snake.npos(n) - self.centre).length() < self.radius)
         {
-            self.is_in = true;
-            if std::time::Instant::now().duration_since(self.last_out) > self.time_req {
-                return Some(self.action);
+            if self.state != ZoneState::Set {
+                if std::time::Instant::now().duration_since(self.last_out) > self.time_req {
+                    self.state = ZoneState::Set;
+                    return Some(self.action);
+                } else {
+                    self.state = ZoneState::Held;
+                }
             }
         } else {
-            self.is_in = false;
+            self.state = ZoneState::Empty;
             self.last_out = std::time::Instant::now();
         }
         None
     }
+}
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum ZoneState {
+    Empty,
+    Held,
+    Set,
 }
 
 #[derive(Debug, Clone)]
@@ -239,6 +282,26 @@ impl World {
         world.add_goal();
         world
     }
+    fn menu(order: usize) -> Self {
+        let mut snake = Snake::new(order);
+        snake.derivatives[0] = vec2(0., 0.5);
+        Self {
+            zones: vec![
+                Zone::new_fail(pos2(0., 0.) as Pos2, 1., std::time::Duration::from_secs(5)),
+                Zone::new_option(pos2(0., 0.), 0.1, Action::Action(0), "Start".to_string()),
+                Zone::new_option(
+                    pos2(0.25, 0.1),
+                    0.1,
+                    Action::Action(1),
+                    "Leading Trail".to_string(),
+                ),
+            ],
+            snake,
+            friction: 0.0001,
+            leading_trail: false,
+        }
+    }
+
     fn add_goal(&mut self) {
         let mut rng = rand::thread_rng();
         let r = rng.gen::<f32>().sqrt() * 3. / 4.;
@@ -249,12 +312,14 @@ impl World {
             std::time::Duration::from_secs(1),
         ))
     }
+
     fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2) {
         for zone in &self.zones {
             zone.draw(ui, trans);
         }
         self.snake.draw(ui, self.leading_trail, trans);
     }
+
     fn step(&mut self, dt: f32) {
         self.snake.step(dt, self.friction);
     }
@@ -263,7 +328,7 @@ impl World {
         self.zones.retain_mut(|zone| {
             if let Some(action) = zone.is_complete(&self.snake) {
                 actions.push(action);
-                return false;
+                return zone.persistent;
             };
             true
         });
@@ -277,16 +342,12 @@ enum Action {
     Point,
     Action(usize),
 }
-impl eframe::App for MyEguiApp {
+
+impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let last_frame = self.frame_time;
         self.frame_time = std::time::Instant::now();
         let dt = (self.frame_time - last_frame).as_secs_f32();
-        // egui::TopBottomPanel::top("Top bar").show(ctx, |ui| {
-        //     ui.collapsing("Settings", |ui| {
-        //         ui.checkbox(&mut self.leading_trail, "Leading trail")
-        //     })
-        // });
         egui::CentralPanel::default().show(ctx, |ui| {
             let trans_tup = (
                 ui.available_size_before_wrap().min_elem() / 2.,
@@ -295,76 +356,83 @@ impl eframe::App for MyEguiApp {
             let trans = |pos| transform(pos, trans_tup);
             let itrans = |pos| inv_transform(pos, trans_tup);
 
-            if false && self.menu {
-            } else {
-                // Changing number of derivatives
-                {
-                    // if ui.input(|input| input.key_pressed(egui::Key::PlusEquals)) {
-                    //     self.n += 1;
-                    //     self.derivatives.push(vec2(0., 0.));
-                    // }
-                    // if self.n > 0 && ui.input(|input| input.key_pressed(egui::Key::Minus)) {
-                    //     self.n -= 1;
-                    //     self.derivatives.pop();
-                    // }
-
-                    if (self.world.snake.order + 1) * (self.world.snake.order + 1) <= self.score {
-                        self.world.snake.add();
+            // Physics step
+            self.world.step(dt);
+            // Controls
+            {
+                if ui.input(|input| input.pointer.primary_down()) {
+                    self.fixed = false;
+                    if let Some(mpos) = ctx.pointer_latest_pos() {
+                        self.mpos = itrans(mpos);
+                    };
+                } else if ui.input(|input| input.pointer.secondary_pressed()) {
+                    if let Some(mpos) = ctx.pointer_latest_pos() {
+                        self.mpos = itrans(mpos);
+                    };
+                    self.fixed = !self.fixed;
+                    if self.fixed {
+                        self.target = (0..self.world.snake.order + 1)
+                            .min_by(|&a, &b| {
+                                (self.mpos - self.world.snake.npos(a))
+                                    .length_sq()
+                                    .total_cmp(&(self.mpos - self.world.snake.npos(b)).length_sq())
+                            })
+                            .expect("No closest point");
                     }
                 }
-                // Physics step
-                {
-                    self.world.step(dt);
+                if self.world.snake.order == 0 {
+                    self.fixed = false;
                 }
-                // Controls
-                {
-                    if ui.input(|input| input.pointer.primary_down()) {
-                        self.fixed = false;
-                        if let Some(mpos) = ctx.pointer_latest_pos() {
-                            self.mpos = itrans(mpos);
-                        };
-                    } else if ui.input(|input| input.pointer.secondary_pressed()) {
-                        if let Some(mpos) = ctx.pointer_latest_pos() {
-                            self.mpos = itrans(mpos);
-                        };
-                        self.fixed = !self.fixed;
-                        if self.fixed {
-                            self.target = (0..self.world.snake.order + 1)
-                                .min_by(|&a, &b| {
-                                    (self.mpos - self.world.snake.npos(a))
-                                        .length_sq()
-                                        .total_cmp(
-                                            &(self.mpos - self.world.snake.npos(b)).length_sq(),
-                                        )
-                                })
-                                .expect("No closest point");
+
+                self.world.snake.to_control(if self.fixed {
+                    self.world.snake.npos(self.target)
+                } else {
+                    self.mpos
+                });
+            }
+            // Game
+            if self.menu {
+                for action in self.world.check() {
+                    match action {
+                        Action::Reset => {
+                            self.mpos = pos2(0., 0.5);
+                            self.world = World::menu(2);
                         }
-                    }
-                    if self.world.snake.order == 0 {
-                        self.fixed = false;
-                    }
-
-                    self.world.snake.to_control(if self.fixed {
-                        self.world.snake.npos(self.target)
-                    } else {
-                        self.mpos
-                    });
-                }
-                // Game
-                {
-                    for action in self.world.check() {
-                        match action {
-                            Action::Reset => {
-                                self.score = 0;
+                        Action::Point => todo!(),
+                        Action::Action(i) => match i {
+                            0 => {
+                                self.menu = false;
                                 self.world = World::new(0);
                             }
-                            Action::Point => {
-                                self.score += 1;
-                                self.world.add_goal()
+                            1 => {
+                                self.world.leading_trail = !self.world.leading_trail;
                             }
-                            Action::Action(_) => todo!(),
-                        }
+                            _ => {
+                                todo!();
+                            }
+                        },
                     }
+                }
+                self.world.draw(ui, &trans);
+            } else {
+                for action in self.world.check() {
+                    match action {
+                        Action::Reset => {
+                            self.score = 0;
+                            self.mpos = pos2(0., 0.5);
+                            self.menu = true;
+                            self.world = World::menu(2);
+                        }
+                        Action::Point => {
+                            self.score += 1;
+                            self.world.add_goal()
+                        }
+                        Action::Action(_) => todo!(),
+                    }
+                }
+
+                if (self.world.snake.order + 1) * (self.world.snake.order + 1) <= self.score {
+                    self.world.snake.add();
                 }
                 // Drawing
                 {
