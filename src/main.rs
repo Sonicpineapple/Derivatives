@@ -13,12 +13,8 @@ fn main() -> eframe::Result<()> {
 }
 
 struct App {
-    mpos: Pos2,
-
     world: World,
 
-    fixed: bool,
-    target: usize,
     score: usize,
 
     frame_time: std::time::Instant,
@@ -26,12 +22,8 @@ struct App {
 impl App {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         Self {
-            mpos: pos2(0., 0.5),
-
             world: World::menu(2),
 
-            fixed: false,
-            target: 0,
             score: 0,
 
             frame_time: std::time::Instant::now(),
@@ -50,6 +42,7 @@ fn inv_transform(pos: Pos2, transform: (f32, Vec2)) -> Pos2 {
 struct Snake {
     order: usize,
     derivatives: Vec<Vec2>,
+    state: SnakeState,
     memory: usize,
     history: VecDeque<Vec<Pos2>>,
     spectrum: colorous::Gradient,
@@ -60,6 +53,7 @@ impl Snake {
         Self {
             order,
             derivatives: vec![vec2(0., 0.); order + 1],
+            state: SnakeState::Anchored(pos2(0., 0.)),
             memory: 200,
             history: VecDeque::new(),
             spectrum: colorous::SINEBOW,
@@ -115,26 +109,54 @@ impl Snake {
         for i in &mut self.derivatives[1..] {
             *i *= 1. - friction;
         }
-    }
-    fn to_control(&mut self, target: Pos2) {
-        *self.derivatives.last_mut().unwrap() = target
-            - if self.order > 0 {
-                self.npos(self.order - 1)
-            } else {
-                pos2(0., 0.)
-            };
+        match self.state {
+            SnakeState::Following(target) => {
+                *self.derivatives.last_mut().unwrap() = target
+                    - if self.order > 0 {
+                        self.npos(self.order - 1)
+                    } else {
+                        pos2(0., 0.)
+                    };
+            }
+            SnakeState::Linked(index) => {
+                *self.derivatives.last_mut().unwrap() = self.npos(index)
+                    - if self.order > 0 {
+                        self.npos(self.order - 1)
+                    } else {
+                        self.npos(0)
+                    };
+            }
+            SnakeState::Anchored(anchor) => {
+                *self.derivatives.last_mut().unwrap() = anchor
+                    - if self.order > 0 {
+                        self.npos(self.order - 1)
+                    } else {
+                        pos2(0., 0.)
+                    };
+            }
+            SnakeState::Drifting => todo!(),
+        }
     }
 
     fn add(&mut self) {
         self.order += 1;
-        let mut rng = rand::thread_rng();
-        // let r = rng.gen::<f32>().sqrt() * 3. / 4.;
-        let theta = rng.gen::<f32>() * std::f32::consts::PI * 2.;
-        self.derivatives.push(0.1 * vec2(theta.cos(), theta.sin()));
+        self.derivatives.push(vec2(0., 0.));
+        match self.state {
+            SnakeState::Anchored(anchor) => {
+                let mut rng = rand::thread_rng();
+                let theta = rng.gen::<f32>() * std::f32::consts::PI * 2.;
+                self.state = SnakeState::Anchored(anchor + 0.01 * vec2(theta.cos(), theta.sin()));
+            }
+            _ => {}
+        }
     }
     fn remove(&mut self) {
         self.order -= 1;
         self.derivatives.pop();
+    }
+
+    fn anchor(&mut self) {
+        self.state = SnakeState::Anchored(self.npos(self.order));
     }
 
     fn npos(&self, n: usize) -> Pos2 {
@@ -143,6 +165,13 @@ impl Snake {
             .take(n + 1)
             .fold(pos2(0., 0.), |a, &b| a + b)
     }
+}
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum SnakeState {
+    Following(Pos2),
+    Linked(usize),
+    Anchored(Pos2),
+    Drifting,
 }
 
 #[derive(Debug, Clone)]
@@ -302,6 +331,7 @@ impl World {
     fn menu(order: usize) -> Self {
         let mut snake = Snake::new(order);
         snake.derivatives[0] = vec2(0., 0.5);
+        snake.state = SnakeState::Anchored(pos2(0., 0.5));
         Self {
             world_type: WorldType::Menu,
             start_time: std::time::Instant::now(),
@@ -329,6 +359,7 @@ impl World {
     fn options(order: usize) -> Self {
         let mut snake = Snake::new(order);
         snake.derivatives[0] = vec2(0., 0.5);
+        snake.state = SnakeState::Anchored(pos2(0., 0.5));
         Self {
             world_type: WorldType::Options,
             start_time: std::time::Instant::now(),
@@ -428,34 +459,27 @@ impl eframe::App for App {
             // Controls
             {
                 if ui.input(|input| input.pointer.primary_down()) {
-                    self.fixed = false;
                     if let Some(mpos) = ctx.pointer_latest_pos() {
-                        self.mpos = itrans(mpos);
+                        self.world.snake.state = SnakeState::Following(itrans(mpos));
                     };
                 } else if ui.input(|input| input.pointer.secondary_pressed()) {
                     if let Some(mpos) = ctx.pointer_latest_pos() {
-                        self.mpos = itrans(mpos);
-                    };
-                    self.fixed = !self.fixed;
-                    if self.fixed {
-                        self.target = (0..self.world.snake.order + 1)
+                        let mpos = itrans(mpos);
+                        let target = (0..self.world.snake.order + 1)
                             .min_by(|&a, &b| {
-                                (self.mpos - self.world.snake.npos(a))
+                                (mpos - self.world.snake.npos(a))
                                     .length_sq()
-                                    .total_cmp(&(self.mpos - self.world.snake.npos(b)).length_sq())
+                                    .total_cmp(&(mpos - self.world.snake.npos(b)).length_sq())
                             })
                             .expect("No closest point");
-                    }
+                        self.world.snake.state = SnakeState::Linked(target);
+                    };
+                } else if ui.input(|input| input.pointer.primary_released()) {
+                    self.world.snake.anchor();
                 }
-                if self.world.snake.order == 0 {
-                    self.fixed = false;
-                }
-
-                self.world.snake.to_control(if self.fixed {
-                    self.world.snake.npos(self.target)
-                } else {
-                    self.mpos
-                });
+                // if self.world.snake.order == 0 {
+                //     self.fixed = false;
+                // }
             }
             // Game
             match self.world.world_type {
@@ -464,7 +488,6 @@ impl eframe::App for App {
                         match action {
                             Action::Reset => {
                                 self.score = 0;
-                                self.mpos = pos2(0., 0.5);
                                 self.world = World::menu(2);
                             }
                             Action::Point => {
@@ -498,7 +521,6 @@ impl eframe::App for App {
                         match action {
                             Action::Reset => {
                                 self.score = 0;
-                                self.mpos = pos2(0., 0.5);
                                 self.world = World::menu(2);
                             }
                             Action::Point => {
@@ -531,7 +553,6 @@ impl eframe::App for App {
                     for action in self.world.check() {
                         match action {
                             Action::Reset => {
-                                self.mpos = pos2(0., 0.5);
                                 self.world = World::menu(2);
                             }
                             Action::Point => todo!(),
@@ -543,7 +564,6 @@ impl eframe::App for App {
                                     self.world = World::survival(0);
                                 }
                                 2 => {
-                                    self.mpos = pos2(0., 0.5);
                                     self.world = World::options(2);
                                 }
                                 _ => {
@@ -558,7 +578,6 @@ impl eframe::App for App {
                     for action in self.world.check() {
                         match action {
                             Action::Reset => {
-                                self.mpos = pos2(0., 0.5);
                                 self.world = World::options(2);
                             }
                             Action::Point => todo!(),
