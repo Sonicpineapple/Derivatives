@@ -519,17 +519,29 @@ impl eframe::App for App {
                     }
                     // Drawing
                     {
+                        ui.put(
+                            egui::Rect::from_center_size(
+                                trans(pos2(0., -0.25)),
+                                vec2(1., 1.) * (unit),
+                            ),
+                            egui::widgets::Label::new(
+                                egui::RichText::new(self.score.to_string())
+                                    .color(egui::Color32::DARK_GRAY)
+                                    .size(unit * 1. / 2.),
+                            ),
+                        );
+                        ui.put(
+                            egui::Rect::from_center_size(
+                                trans(pos2(0., 0.2)),
+                                vec2(1., 1.) * (unit),
+                            ),
+                            egui::widgets::Label::new(
+                                egui::RichText::new(self.world.snake.order.to_string())
+                                    .color(egui::Color32::DARK_GRAY)
+                                    .size(unit * 2. / 7.),
+                            ),
+                        );
                         self.world.draw(ui, &trans, unit);
-                        ui.label(
-                            egui::RichText::new(self.score.to_string())
-                                .color(egui::Color32::LIGHT_GRAY)
-                                .size(20.),
-                        );
-                        ui.label(
-                            egui::RichText::new(self.world.snake.order.to_string())
-                                .color(egui::Color32::LIGHT_GRAY)
-                                .size(15.),
-                        );
                     }
                 }
                 WorldType::Survival => {
@@ -552,17 +564,29 @@ impl eframe::App for App {
                     }
                     // Drawing
                     {
+                        ui.put(
+                            egui::Rect::from_center_size(
+                                trans(pos2(0., -0.25)),
+                                vec2(1., 1.) * (unit),
+                            ),
+                            egui::widgets::Label::new(
+                                egui::RichText::new(self.score.to_string())
+                                    .color(egui::Color32::DARK_GRAY)
+                                    .size(unit * 1. / 2.),
+                            ),
+                        );
+                        ui.put(
+                            egui::Rect::from_center_size(
+                                trans(pos2(0., 0.2)),
+                                vec2(1., 1.) * (unit),
+                            ),
+                            egui::widgets::Label::new(
+                                egui::RichText::new(self.world.snake.order.to_string())
+                                    .color(egui::Color32::DARK_GRAY)
+                                    .size(unit * 2. / 7.),
+                            ),
+                        );
                         self.world.draw(ui, &trans, unit);
-                        ui.label(
-                            egui::RichText::new(self.score.to_string())
-                                .color(egui::Color32::LIGHT_GRAY)
-                                .size(20.),
-                        );
-                        ui.label(
-                            egui::RichText::new(self.world.snake.order.to_string())
-                                .color(egui::Color32::LIGHT_GRAY)
-                                .size(15.),
-                        );
                     }
                 }
                 WorldType::Menu => {
