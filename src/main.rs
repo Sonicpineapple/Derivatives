@@ -23,8 +23,10 @@ struct App {
 }
 impl App {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+        let mut world = World::new();
+        world.to_menu(2);
         Self {
-            world: World::menu(2),
+            world,
 
             score: 0,
 
@@ -158,6 +160,21 @@ impl Snake {
     fn remove(&mut self) {
         self.order -= 1;
         self.derivatives.pop();
+    }
+    fn set_order(&mut self, order: usize) {
+        while self.order > order {
+            self.remove();
+        }
+        while self.order < order {
+            self.add();
+        }
+    }
+
+    fn reset(&mut self, pos: Pos2) {
+        self.derivatives = vec![vec2(0., 0.); self.order + 1];
+        self.history = VecDeque::new();
+        self.derivatives[0] = pos.to_vec2();
+        self.anchor();
     }
 
     fn anchor(&mut self) {
@@ -298,98 +315,88 @@ enum ZoneState {
 #[derive(Debug, Clone)]
 struct World {
     world_type: WorldType,
-    start_time: std::time::Instant,
     time: std::time::Duration,
     zones: Vec<Zone>,
     snake: Snake,
     friction: f32,
 }
 impl World {
-    fn standard(order: usize) -> Self {
-        let mut world = Self {
-            world_type: WorldType::Standard,
-            start_time: std::time::Instant::now(),
-            time: std::time::Duration::from_secs(0),
-            zones: vec![Zone::new_fail(
-                pos2(0., 0.) as Pos2,
-                1.,
-                std::time::Duration::from_secs(5),
-            )],
-            snake: Snake::new(order),
-            friction: 0.0001,
-        };
-        world.add_goal();
-        world
-    }
-    fn survival(order: usize) -> Self {
+    fn new() -> Self {
         Self {
-            world_type: WorldType::Survival,
-            start_time: std::time::Instant::now(),
+            world_type: WorldType::Debug,
             time: std::time::Duration::from_secs(0),
-            zones: vec![Zone::new_fail(
-                pos2(0., 0.) as Pos2,
-                1.,
-                std::time::Duration::from_secs(5),
-            )],
-            snake: Snake::new(order),
+            zones: vec![],
+            snake: Snake::new(0),
             friction: 0.0001,
         }
     }
-    fn menu(order: usize) -> Self {
+    fn to_standard(&mut self, order: usize) {
+        self.world_type = WorldType::Standard;
+        self.time = std::time::Duration::from_secs(0);
+        self.zones = vec![Zone::new_fail(
+            pos2(0., 0.) as Pos2,
+            1.,
+            std::time::Duration::from_secs(5),
+        )];
+        self.snake.set_order(order);
+        self.snake.reset(pos2(0., 0.));
+        self.add_goal();
+    }
+    fn to_survival(&mut self, order: usize) {
+        self.world_type = WorldType::Survival;
+        self.time = std::time::Duration::from_secs(0);
+        self.zones = vec![Zone::new_fail(
+            pos2(0., 0.) as Pos2,
+            1.,
+            std::time::Duration::from_secs(5),
+        )];
+        self.snake.set_order(order);
+        self.snake.reset(pos2(0., 0.));
+    }
+    fn to_menu(&mut self, order: usize) {
+        self.world_type = WorldType::Menu;
+        self.time = std::time::Duration::from_secs(0);
+        self.zones = vec![
+            Zone::new_fail(pos2(0., 0.) as Pos2, 1., std::time::Duration::from_secs(5)),
+            Zone::new_option(pos2(0., 0.), 0.1, Action::Action(0), "Start".to_string()),
+            Zone::new_option(
+                pos2(-0.25, 0.1),
+                0.1,
+                Action::Action(1),
+                "Survival".to_string(),
+            ),
+            Zone::new_option(
+                pos2(0.25, 0.1),
+                0.1,
+                Action::Action(2),
+                "Options".to_string(),
+            ),
+        ];
+        self.snake.set_order(order);
+        self.snake.reset(pos2(0., 0.5));
+    }
+    fn to_options(&mut self, order: usize) {
+        self.world_type = WorldType::Options;
+        self.time = std::time::Duration::from_secs(0);
+        self.zones = vec![
+            Zone::new_fail(pos2(0., 0.) as Pos2, 1., std::time::Duration::from_secs(5)),
+            Zone::new_option(pos2(0., 0.), 0.1, Action::Action(0), "Back".to_string()),
+            Zone::new_option(
+                pos2(-0.25, 0.1),
+                0.1,
+                Action::Action(1),
+                "Dummy".to_string(),
+            ),
+            Zone::new_option(
+                pos2(0.25, 0.1),
+                0.1,
+                Action::Action(2),
+                "Leading Trail".to_string(),
+            ),
+        ];
+        self.snake.set_order(order);
+        self.snake.reset(pos2(0., 0.5));
         let mut snake = Snake::new(order);
-        snake.derivatives[0] = vec2(0., 0.5);
-        snake.state = SnakeState::Anchored(pos2(0., 0.5));
-        Self {
-            world_type: WorldType::Menu,
-            start_time: std::time::Instant::now(),
-            time: std::time::Duration::from_secs(0),
-            zones: vec![
-                Zone::new_fail(pos2(0., 0.) as Pos2, 1., std::time::Duration::from_secs(5)),
-                Zone::new_option(pos2(0., 0.), 0.1, Action::Action(0), "Start".to_string()),
-                Zone::new_option(
-                    pos2(-0.25, 0.1),
-                    0.1,
-                    Action::Action(1),
-                    "Survival".to_string(),
-                ),
-                Zone::new_option(
-                    pos2(0.25, 0.1),
-                    0.1,
-                    Action::Action(2),
-                    "Options".to_string(),
-                ),
-            ],
-            snake,
-            friction: 0.0001,
-        }
-    }
-    fn options(order: usize) -> Self {
-        let mut snake = Snake::new(order);
-        snake.derivatives[0] = vec2(0., 0.5);
-        snake.state = SnakeState::Anchored(pos2(0., 0.5));
-        Self {
-            world_type: WorldType::Options,
-            start_time: std::time::Instant::now(),
-            time: std::time::Duration::from_secs(0),
-            zones: vec![
-                Zone::new_fail(pos2(0., 0.) as Pos2, 1., std::time::Duration::from_secs(5)),
-                Zone::new_option(pos2(0., 0.), 0.1, Action::Action(0), "Back".to_string()),
-                Zone::new_option(
-                    pos2(-0.25, 0.1),
-                    0.1,
-                    Action::Action(1),
-                    "Dummy".to_string(),
-                ),
-                Zone::new_option(
-                    pos2(0.25, 0.1),
-                    0.1,
-                    Action::Action(2),
-                    "Leading Trail".to_string(),
-                ),
-            ],
-            snake,
-            friction: 0.0001,
-        }
     }
 
     fn add_goal(&mut self) {
@@ -439,6 +446,7 @@ enum WorldType {
     Survival,
     Menu,
     Options,
+    Debug,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -496,7 +504,7 @@ impl eframe::App for App {
                         match action {
                             Action::Reset => {
                                 self.score = 0;
-                                self.world = World::menu(2);
+                                self.world.to_menu(2);
                             }
                             Action::Point => {
                                 self.score += 1;
@@ -529,7 +537,7 @@ impl eframe::App for App {
                         match action {
                             Action::Reset => {
                                 self.score = 0;
-                                self.world = World::menu(2);
+                                self.world.to_menu(2);
                             }
                             Action::Point => {
                                 todo!();
@@ -561,18 +569,18 @@ impl eframe::App for App {
                     for action in self.world.check() {
                         match action {
                             Action::Reset => {
-                                self.world = World::menu(2);
+                                self.world.to_menu(2);
                             }
                             Action::Point => todo!(),
                             Action::Action(i) => match i {
                                 0 => {
-                                    self.world = World::standard(0);
+                                    self.world.to_standard(0);
                                 }
                                 1 => {
-                                    self.world = World::survival(0);
+                                    self.world.to_survival(0);
                                 }
                                 2 => {
-                                    self.world = World::options(2);
+                                    self.world.to_options(2);
                                 }
                                 _ => {
                                     todo!();
@@ -586,12 +594,12 @@ impl eframe::App for App {
                     for action in self.world.check() {
                         match action {
                             Action::Reset => {
-                                self.world = World::options(2);
+                                self.world.to_options(2);
                             }
                             Action::Point => todo!(),
                             Action::Action(i) => match i {
                                 0 => {
-                                    self.world = World::menu(2);
+                                    self.world.to_menu(2);
                                 }
                                 1 => {
                                     continue;
@@ -608,6 +616,7 @@ impl eframe::App for App {
                     }
                     self.world.draw(ui, &trans, unit);
                 }
+                WorldType::Debug => todo!(),
             }
         });
         ctx.request_repaint();
