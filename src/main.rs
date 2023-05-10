@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use eframe::egui;
 use egui::{pos2, vec2, Pos2, Vec2};
 use rand::prelude::*;
@@ -60,7 +62,9 @@ impl Snake {
             leading_trail: false,
         }
     }
-    fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2) {
+    fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
+        let node_rad = unit / 50.;
+        let line_width = unit / 80.;
         for (t, h) in self.history.iter().enumerate() {
             for (i, &e) in h.iter().enumerate() {
                 if self.leading_trail || i < self.order {
@@ -75,7 +79,7 @@ impl Snake {
                     );
                     ui.painter().circle_filled(
                         trans(e),
-                        t as f32 * 5. / (3 * self.memory) as f32,
+                        t as f32 * node_rad / (3 * self.memory) as f32,
                         col,
                     );
                 }
@@ -84,13 +88,14 @@ impl Snake {
         for i in 1..self.derivatives.len() {
             ui.painter().line_segment(
                 [trans(self.npos(i - 1)), trans(self.npos(i))],
-                (3., egui::Color32::DARK_GRAY),
+                (line_width, egui::Color32::DARK_GRAY),
             )
         }
         for i in 0..self.derivatives.len() {
             let col = colorous::SINEBOW.eval_rational(i, self.order + 1);
             let col = egui::Color32::from_rgb(col.r, col.g, col.b);
-            ui.painter().circle_filled(trans(self.npos(i)), 5., col);
+            ui.painter()
+                .circle_filled(trans(self.npos(i)), node_rad, col);
         }
     }
     fn step(&mut self, dt: f32, friction: f32) {
@@ -239,14 +244,16 @@ impl Zone {
         }
     }
 
-    fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2) {
+    fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
         let centre = trans(self.centre);
-        let radius = self.radius * trans(pos2(1., 0.)).distance(trans(pos2(0., 0.)));
+        let radius = self.radius * unit;
+        let edge_width = unit / 50.;
+        let label_size = unit / 25.;
         ui.painter().circle_stroke(
             centre,
             radius,
             (
-                5.,
+                edge_width,
                 match self.state {
                     ZoneState::Empty => self.empty_col,
                     ZoneState::Held => self.held_col,
@@ -257,7 +264,7 @@ impl Zone {
         if let Some(label) = &self.label {
             ui.put(
                 egui::Rect::from_center_size(centre, 1.5 * vec2(radius, radius)),
-                egui::widgets::Label::new(label),
+                egui::widgets::Label::new(egui::RichText::new(label).size(label_size)),
             );
         }
     }
@@ -396,11 +403,11 @@ impl World {
         ))
     }
 
-    fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2) {
+    fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
         for zone in &self.zones {
-            zone.draw(ui, trans);
+            zone.draw(ui, trans, unit);
         }
-        self.snake.draw(ui, trans);
+        self.snake.draw(ui, trans, unit);
     }
 
     fn step(&mut self, dt: f32) {
@@ -447,10 +454,11 @@ impl eframe::App for App {
         self.frame_time = std::time::Instant::now();
         let dt = (self.frame_time - last_frame).as_secs_f32();
         egui::CentralPanel::default().show(ctx, |ui| {
-            let trans_tup = (
-                ui.available_size_before_wrap().min_elem() / 2.,
-                ui.available_rect_before_wrap().center().to_vec2(),
-            );
+            let rect = ui.available_rect_before_wrap();
+            let (cen, size) = (rect.center(), rect.size());
+            let unit = size.min_elem() / 2.;
+
+            let trans_tup = (unit, cen.to_vec2());
             let trans = |pos| transform(pos, trans_tup);
             let itrans = |pos| inv_transform(pos, trans_tup);
 
@@ -503,7 +511,7 @@ impl eframe::App for App {
                     }
                     // Drawing
                     {
-                        self.world.draw(ui, &trans);
+                        self.world.draw(ui, &trans, unit);
                         ui.label(
                             egui::RichText::new(self.score.to_string())
                                 .color(egui::Color32::LIGHT_GRAY)
@@ -536,7 +544,7 @@ impl eframe::App for App {
                     }
                     // Drawing
                     {
-                        self.world.draw(ui, &trans);
+                        self.world.draw(ui, &trans, unit);
                         ui.label(
                             egui::RichText::new(self.score.to_string())
                                 .color(egui::Color32::LIGHT_GRAY)
@@ -572,7 +580,7 @@ impl eframe::App for App {
                             },
                         }
                     }
-                    self.world.draw(ui, &trans);
+                    self.world.draw(ui, &trans, unit);
                 }
                 WorldType::Options => {
                     for action in self.world.check() {
@@ -598,7 +606,7 @@ impl eframe::App for App {
                             },
                         }
                     }
-                    self.world.draw(ui, &trans);
+                    self.world.draw(ui, &trans, unit);
                 }
             }
         });
