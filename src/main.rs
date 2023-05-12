@@ -24,7 +24,7 @@ struct App {
 impl App {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let mut world = World::new();
-        world.to_menu(2);
+        world.to_type(WorldType::Menu);
         Self {
             world,
 
@@ -158,8 +158,10 @@ impl Snake {
         }
     }
     fn remove(&mut self) {
-        self.order -= 1;
-        self.derivatives.pop();
+        if self.order > 0 {
+            self.order -= 1;
+            self.derivatives.pop();
+        }
     }
     fn set_order(&mut self, order: usize) {
         while self.order > order {
@@ -168,6 +170,10 @@ impl Snake {
         while self.order < order {
             self.add();
         }
+    }
+
+    fn toggle_leading_trail(&mut self) {
+        self.leading_trail = !self.leading_trail;
     }
 
     fn reset(&mut self, pos: Pos2) {
@@ -228,7 +234,12 @@ impl Zone {
             label: None,
         }
     }
-    fn new_fail(centre: Pos2, radius: f32, time_req: std::time::Duration) -> Self {
+    fn new_fail(
+        centre: Pos2,
+        radius: f32,
+        time_req: std::time::Duration,
+        world_type: WorldType,
+    ) -> Self {
         Self {
             centre,
             radius,
@@ -240,7 +251,7 @@ impl Zone {
             state: ZoneState::Empty,
             last_out: std::time::Instant::now(),
             time_req,
-            action: Action::Reset,
+            action: Action::Reset(world_type),
             label: None,
         }
     }
@@ -265,7 +276,7 @@ impl Zone {
         let centre = trans(self.centre);
         let radius = self.radius * unit;
         let edge_width = unit / 50.;
-        let label_size = unit / 25.;
+        let label_size = unit / 30.;
         ui.painter().circle_stroke(
             centre,
             radius,
@@ -280,7 +291,7 @@ impl Zone {
         );
         if let Some(label) = &self.label {
             ui.put(
-                egui::Rect::from_center_size(centre, 1.5 * vec2(radius, radius)),
+                egui::Rect::from_center_size(centre, (2. * (radius - edge_width)) * vec2(1., 1.)),
                 egui::widgets::Label::new(egui::RichText::new(label).size(label_size)),
             );
         }
@@ -303,6 +314,15 @@ impl Zone {
             self.last_out = std::time::Instant::now();
         }
         None
+    }
+    fn is_safe(&self) -> bool {
+        match self.action {
+            Action::Reset(_) => false,
+            _ => true,
+        }
+    }
+    fn is_empty(&self) -> bool {
+        self.state == ZoneState::Empty
     }
 }
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -330,100 +350,105 @@ impl World {
             friction: 0.0001,
         }
     }
-    fn to_standard(&mut self, order: usize) {
-        self.world_type = WorldType::Standard;
+
+    fn to_type(&mut self, world_type: WorldType) {
+        self.world_type = world_type;
         self.time = std::time::Duration::from_secs(0);
         self.zones = vec![Zone::new_fail(
             pos2(0., 0.) as Pos2,
             1.,
             std::time::Duration::from_secs(5),
+            if world_type.is_playfield() {
+                WorldType::Menu
+            } else {
+                world_type
+            },
         )];
-        self.snake.set_order(order);
-        self.snake.reset(pos2(0., 0.));
-        self.add_goal();
-    }
-    fn to_survival(&mut self, order: usize) {
-        self.world_type = WorldType::Survival;
-        self.time = std::time::Duration::from_secs(0);
-        self.zones = vec![Zone::new_fail(
-            pos2(0., 0.) as Pos2,
-            1.,
-            std::time::Duration::from_secs(5),
-        )];
-        self.snake.set_order(order);
-        self.snake.reset(pos2(0., 0.));
-    }
-    fn to_menu(&mut self, order: usize) {
-        self.world_type = WorldType::Menu;
-        self.time = std::time::Duration::from_secs(0);
-        self.zones = vec![
-            Zone::new_fail(pos2(0., 0.) as Pos2, 1., std::time::Duration::from_secs(5)),
-            Zone::new_option(pos2(0., 0.), 0.1, Action::Action(0), "Start".to_string()),
-            Zone::new_option(
-                pos2(-0.25, 0.1),
-                0.1,
-                Action::Action(1),
-                "Survival".to_string(),
-            ),
-            Zone::new_option(
-                pos2(0.25, 0.1),
-                0.1,
-                Action::Action(2),
-                "Options".to_string(),
-            ),
-            Zone::new_option(
-                pos2(0., -0.27),
-                0.1,
-                Action::Action(3),
-                "Training".to_string(),
-            ),
-        ];
-        self.snake.set_order(order);
-        self.snake.reset(pos2(0., 0.5));
-    }
-    fn to_options(&mut self, order: usize) {
-        self.world_type = WorldType::Options;
-        self.time = std::time::Duration::from_secs(0);
-        self.zones = vec![
-            Zone::new_fail(pos2(0., 0.) as Pos2, 1., std::time::Duration::from_secs(5)),
-            Zone::new_option(pos2(0., 0.), 0.1, Action::Action(0), "Back".to_string()),
-            Zone::new_option(
-                pos2(-0.25, 0.1),
-                0.1,
-                Action::Action(1),
-                "Dummy".to_string(),
-            ),
-            Zone::new_option(
-                pos2(0.25, 0.1),
-                0.1,
-                Action::Action(2),
-                "Leading Trail".to_string(),
-            ),
-        ];
-        self.snake.set_order(order);
-        self.snake.reset(pos2(0., 0.5));
-    }
-    fn to_training(&mut self, order: usize) {
-        self.world_type = WorldType::Training;
-        self.time = std::time::Duration::from_secs(0);
-        self.zones = vec![
-            Zone::new_fail(pos2(0., 0.) as Pos2, 1., std::time::Duration::from_secs(5)),
-            Zone::new_option(pos2(0., 0.), 0.1, Action::Action(0), "Back".to_string()),
-            Zone::new_option(
-                pos2(-0.25, 0.1),
-                0.1,
-                Action::Action(1),
-                "Node -".to_string(),
-            ),
-            Zone::new_option(
-                pos2(0.25, 0.1),
-                0.1,
-                Action::Action(2),
-                "Node +".to_string(),
-            ),
-        ];
-        self.snake.set_order(order);
-        self.snake.reset(pos2(0., 0.5));
+        match world_type {
+            WorldType::Debug => todo!(),
+            WorldType::Standard => {
+                self.snake.set_order(0);
+                self.snake.reset(pos2(0., 0.));
+                self.add_goal();
+            }
+            WorldType::Survival => {
+                self.snake.set_order(0);
+                self.snake.reset(pos2(0., 0.));
+            }
+            WorldType::Training => {
+                self.zones.append(&mut vec![
+                    Zone::new_option(
+                        pos2(0., 0.),
+                        0.1,
+                        Action::Reset(WorldType::Menu),
+                        "Back".to_string(),
+                    ),
+                    Zone::new_option(
+                        pos2(-0.25, 0.1),
+                        0.1,
+                        Action::AdjustNodeCount(-1),
+                        "Node -".to_string(),
+                    ),
+                    Zone::new_option(
+                        pos2(0.25, 0.1),
+                        0.1,
+                        Action::AdjustNodeCount(1),
+                        "Node +".to_string(),
+                    ),
+                ]);
+                self.snake.set_order(2);
+                self.snake.reset(pos2(0., 0.5));
+            }
+            WorldType::Menu => {
+                self.zones.append(&mut vec![
+                    Zone::new_option(
+                        pos2(0., 0.),
+                        0.1,
+                        Action::Reset(WorldType::Standard),
+                        "Standard".to_string(),
+                    ),
+                    Zone::new_option(
+                        pos2(-0.25, 0.1),
+                        0.1,
+                        Action::Reset(WorldType::Survival),
+                        "Survival".to_string(),
+                    ),
+                    Zone::new_option(
+                        pos2(0.25, 0.1),
+                        0.1,
+                        Action::Reset(WorldType::Options),
+                        "Options".to_string(),
+                    ),
+                    Zone::new_option(
+                        pos2(0., -0.27),
+                        0.1,
+                        Action::Reset(WorldType::Training),
+                        "Training".to_string(),
+                    ),
+                ]);
+                self.snake.set_order(2);
+                self.snake.reset(pos2(0., 0.5));
+            }
+            WorldType::Options => {
+                self.zones.append(&mut vec![
+                    Zone::new_option(
+                        pos2(0., 0.),
+                        0.1,
+                        Action::Reset(WorldType::Menu),
+                        "Back".to_string(),
+                    ),
+                    Zone::new_option(pos2(-0.25, 0.1), 0.1, Action::Dummy, "Dummy".to_string()),
+                    Zone::new_option(
+                        pos2(0.25, 0.1),
+                        0.1,
+                        Action::ToggleLeadingTrail,
+                        "Leading Trail".to_string(),
+                    ),
+                ]);
+                self.snake.set_order(2);
+                self.snake.reset(pos2(0., 0.5));
+            }
+        }
     }
 
     fn add_goal(&mut self) {
@@ -450,7 +475,7 @@ impl World {
             || self
                 .zones
                 .iter()
-                .all(|zone| zone.action != Action::Reset || zone.state == ZoneState::Empty)
+                .all(|zone| zone.is_safe() || zone.is_empty())
         {
             self.time += std::time::Duration::from_secs_f32(dt);
         }
@@ -476,12 +501,26 @@ enum WorldType {
     Menu,
     Options,
 }
+impl WorldType {
+    fn is_playfield(&self) -> bool {
+        match self {
+            WorldType::Debug => todo!(),
+            WorldType::Standard => true,
+            WorldType::Survival => true,
+            WorldType::Training => false,
+            WorldType::Menu => false,
+            WorldType::Options => false,
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum Action {
-    Reset,
+    Reset(WorldType),
     Point,
-    Action(usize),
+    ToggleLeadingTrail,
+    AdjustNodeCount(isize),
+    Dummy,
 }
 
 impl eframe::App for App {
@@ -526,186 +565,67 @@ impl eframe::App for App {
                 // }
             }
             // Game
-            match self.world.world_type {
-                WorldType::Standard => {
-                    for action in self.world.check() {
-                        match action {
-                            Action::Reset => {
-                                self.score = 0;
-                                self.world.to_menu(2);
+            for action in self.world.check() {
+                match action {
+                    Action::Reset(world_type) => {
+                        self.score = 0;
+                        self.world.to_type(world_type);
+                    }
+                    Action::Point => match self.world.world_type {
+                        WorldType::Standard => {
+                            self.score += 1;
+                            self.world.add_goal();
+                        }
+                        _ => todo!(),
+                    },
+                    Action::ToggleLeadingTrail => self.world.snake.toggle_leading_trail(),
+                    Action::AdjustNodeCount(n) => {
+                        for _ in 0..(n.abs()) {
+                            if n < 0 {
+                                self.world.snake.remove();
+                            } else {
+                                self.world.snake.add();
                             }
-                            Action::Point => {
-                                self.score += 1;
-                                self.world.add_goal()
-                            }
-                            Action::Action(_) => todo!(),
                         }
                     }
-
+                    Action::Dummy => continue,
+                }
+            }
+            match self.world.world_type {
+                WorldType::Standard => {
                     if (self.world.snake.order + 1) * (self.world.snake.order + 1) <= self.score {
                         self.world.snake.add();
                     }
-                    // Drawing
-                    {
-                        ui.put(
-                            egui::Rect::from_center_size(
-                                trans(pos2(0., -0.25)),
-                                vec2(1., 1.) * (unit),
-                            ),
-                            egui::widgets::Label::new(
-                                egui::RichText::new(self.score.to_string())
-                                    .color(egui::Color32::DARK_GRAY)
-                                    .size(unit * 1. / 2.),
-                            ),
-                        );
-                        ui.put(
-                            egui::Rect::from_center_size(
-                                trans(pos2(0., 0.2)),
-                                vec2(1., 1.) * (unit),
-                            ),
-                            egui::widgets::Label::new(
-                                egui::RichText::new(self.world.snake.order.to_string())
-                                    .color(egui::Color32::DARK_GRAY)
-                                    .size(unit * 2. / 7.),
-                            ),
-                        );
-                        self.world.draw(ui, &trans, unit);
-                    }
                 }
                 WorldType::Survival => {
-                    for action in self.world.check() {
-                        match action {
-                            Action::Reset => {
-                                self.score = 0;
-                                self.world.to_menu(2);
-                            }
-                            Action::Point => {
-                                todo!();
-                            }
-                            Action::Action(_) => todo!(),
-                        }
-                    }
                     self.score = self.world.time.as_secs() as usize;
 
                     if (self.world.snake.order + 1) * (self.world.snake.order + 1) <= self.score {
                         self.world.snake.add();
                     }
-                    // Drawing
-                    {
-                        ui.put(
-                            egui::Rect::from_center_size(
-                                trans(pos2(0., -0.25)),
-                                vec2(1., 1.) * (unit),
-                            ),
-                            egui::widgets::Label::new(
-                                egui::RichText::new(self.score.to_string())
-                                    .color(egui::Color32::DARK_GRAY)
-                                    .size(unit * 1. / 2.),
-                            ),
-                        );
-                        ui.put(
-                            egui::Rect::from_center_size(
-                                trans(pos2(0., 0.2)),
-                                vec2(1., 1.) * (unit),
-                            ),
-                            egui::widgets::Label::new(
-                                egui::RichText::new(self.world.snake.order.to_string())
-                                    .color(egui::Color32::DARK_GRAY)
-                                    .size(unit * 2. / 7.),
-                            ),
-                        );
-                        self.world.draw(ui, &trans, unit);
-                    }
                 }
-                WorldType::Menu => {
-                    for action in self.world.check() {
-                        match action {
-                            Action::Reset => {
-                                self.world.to_menu(2);
-                            }
-                            Action::Point => todo!(),
-                            Action::Action(i) => match i {
-                                0 => {
-                                    self.world.to_standard(0);
-                                }
-                                1 => {
-                                    self.world.to_survival(0);
-                                }
-                                2 => {
-                                    self.world.to_options(2);
-                                }
-                                3 => {
-                                    self.world.to_training(2);
-                                }
-                                _ => {
-                                    todo!();
-                                }
-                            },
-                        }
-                    }
-                    self.world.draw(ui, &trans, unit);
-                }
-                WorldType::Options => {
-                    for action in self.world.check() {
-                        match action {
-                            Action::Reset => {
-                                self.world.to_options(2);
-                            }
-                            Action::Point => todo!(),
-                            Action::Action(i) => match i {
-                                0 => {
-                                    self.world.to_menu(2);
-                                }
-                                1 => {
-                                    continue;
-                                }
-                                2 => {
-                                    self.world.snake.leading_trail =
-                                        !self.world.snake.leading_trail;
-                                }
-                                _ => {
-                                    todo!();
-                                }
-                            },
-                        }
-                    }
-                    self.world.draw(ui, &trans, unit);
-                }
-                WorldType::Debug => todo!(),
-                WorldType::Training => {
-                    for action in self.world.check() {
-                        match action {
-                            Action::Reset => {
-                                self.world.to_training(2);
-                            }
-                            Action::Point => todo!(),
-                            Action::Action(i) => match i {
-                                0 => {
-                                    self.world.to_menu(2);
-                                }
-                                1 => {
-                                    self.world.snake.remove();
-                                }
-                                2 => {
-                                    self.world.snake.add();
-                                }
-                                _ => {
-                                    todo!();
-                                }
-                            },
-                        }
-                    }
-                    ui.put(
-                        egui::Rect::from_center_size(trans(pos2(0., 0.2)), vec2(1., 1.) * (unit)),
-                        egui::widgets::Label::new(
-                            egui::RichText::new(self.world.snake.order.to_string())
-                                .color(egui::Color32::DARK_GRAY)
-                                .size(unit * 2. / 7.),
-                        ),
-                    );
-                    self.world.draw(ui, &trans, unit);
-                }
+                _ => (),
             }
+            // Drawing
+            if self.world.world_type.is_playfield() {
+                ui.put(
+                    egui::Rect::from_center_size(trans(pos2(0., -0.25)), vec2(1., 1.) * (unit)),
+                    egui::widgets::Label::new(
+                        egui::RichText::new(self.score.to_string())
+                            .color(egui::Color32::DARK_GRAY)
+                            .size(unit * 1. / 2.),
+                    ),
+                );
+            }
+            ui.put(
+                egui::Rect::from_center_size(trans(pos2(0., 0.25)), vec2(1., 1.) * (unit)),
+                egui::widgets::Label::new(
+                    egui::RichText::new(self.world.snake.order.to_string())
+                        .color(egui::Color32::DARK_GRAY)
+                        .size(unit * 2. / 7.),
+                ),
+            );
+            self.world.draw(ui, &trans, unit);
         });
         ctx.request_repaint();
     }
