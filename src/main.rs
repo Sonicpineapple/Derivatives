@@ -371,6 +371,12 @@ impl World {
                 Action::Action(2),
                 "Options".to_string(),
             ),
+            Zone::new_option(
+                pos2(0., -0.27),
+                0.1,
+                Action::Action(3),
+                "Training".to_string(),
+            ),
         ];
         self.snake.set_order(order);
         self.snake.reset(pos2(0., 0.5));
@@ -396,7 +402,28 @@ impl World {
         ];
         self.snake.set_order(order);
         self.snake.reset(pos2(0., 0.5));
-        let mut snake = Snake::new(order);
+    }
+    fn to_training(&mut self, order: usize) {
+        self.world_type = WorldType::Training;
+        self.time = std::time::Duration::from_secs(0);
+        self.zones = vec![
+            Zone::new_fail(pos2(0., 0.) as Pos2, 1., std::time::Duration::from_secs(5)),
+            Zone::new_option(pos2(0., 0.), 0.1, Action::Action(0), "Back".to_string()),
+            Zone::new_option(
+                pos2(-0.25, 0.1),
+                0.1,
+                Action::Action(1),
+                "Node -".to_string(),
+            ),
+            Zone::new_option(
+                pos2(0.25, 0.1),
+                0.1,
+                Action::Action(2),
+                "Node +".to_string(),
+            ),
+        ];
+        self.snake.set_order(order);
+        self.snake.reset(pos2(0., 0.5));
     }
 
     fn add_goal(&mut self) {
@@ -442,11 +469,12 @@ impl World {
 }
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum WorldType {
+    Debug,
     Standard,
     Survival,
+    Training,
     Menu,
     Options,
-    Debug,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -606,6 +634,9 @@ impl eframe::App for App {
                                 2 => {
                                     self.world.to_options(2);
                                 }
+                                3 => {
+                                    self.world.to_training(2);
+                                }
                                 _ => {
                                     todo!();
                                 }
@@ -641,6 +672,39 @@ impl eframe::App for App {
                     self.world.draw(ui, &trans, unit);
                 }
                 WorldType::Debug => todo!(),
+                WorldType::Training => {
+                    for action in self.world.check() {
+                        match action {
+                            Action::Reset => {
+                                self.world.to_training(2);
+                            }
+                            Action::Point => todo!(),
+                            Action::Action(i) => match i {
+                                0 => {
+                                    self.world.to_menu(2);
+                                }
+                                1 => {
+                                    self.world.snake.remove();
+                                }
+                                2 => {
+                                    self.world.snake.add();
+                                }
+                                _ => {
+                                    todo!();
+                                }
+                            },
+                        }
+                    }
+                    ui.put(
+                        egui::Rect::from_center_size(trans(pos2(0., 0.2)), vec2(1., 1.) * (unit)),
+                        egui::widgets::Label::new(
+                            egui::RichText::new(self.world.snake.order.to_string())
+                                .color(egui::Color32::DARK_GRAY)
+                                .size(unit * 2. / 7.),
+                        ),
+                    );
+                    self.world.draw(ui, &trans, unit);
+                }
             }
         });
         ctx.request_repaint();
