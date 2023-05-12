@@ -3,7 +3,7 @@
 use eframe::egui;
 use egui::{pos2, vec2, Pos2, Vec2};
 use rand::prelude::*;
-use std::collections::VecDeque;
+use std::{collections::VecDeque, f32::consts::PI};
 
 fn main() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions::default();
@@ -24,7 +24,7 @@ struct App {
 impl App {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let mut world = World::new();
-        world.to_type(WorldType::Menu);
+        world.to_type(WorldType::MainMenu);
         Self {
             world,
 
@@ -40,6 +40,14 @@ fn transform(pos: Pos2, transform: (f32, Vec2)) -> Pos2 {
 }
 fn inv_transform(pos: Pos2, transform: (f32, Vec2)) -> Pos2 {
     ((pos - transform.1).to_vec2() / transform.0).to_pos2()
+}
+/// Get position from radius and cw angle with 0 radians as -y
+fn pos_rt(r: f32, t: f32) -> Pos2 {
+    pos2(0., 0.) + vec_rt(r, t)
+}
+/// Get vector from radius and cw angle with 0 radians as -y
+fn vec_rt(r: f32, t: f32) -> Vec2 {
+    r * vec2(t.sin(), -t.cos())
 }
 
 #[derive(Debug, Clone)]
@@ -207,6 +215,7 @@ struct Zone {
     centre: Pos2,
     radius: f32,
     inverted: bool,
+    total: bool,
     persistent: bool,
     empty_col: egui::Color32,
     held_col: egui::Color32,
@@ -223,6 +232,7 @@ impl Zone {
             centre,
             radius,
             inverted: false,
+            total: true,
             persistent: false,
             empty_col: egui::Color32::LIGHT_RED,
             held_col: egui::Color32::LIGHT_GREEN,
@@ -231,6 +241,28 @@ impl Zone {
             last_out: std::time::Instant::now(),
             time_req,
             action: Action::Point,
+            label: None,
+        }
+    }
+    fn new_outzone(
+        centre: Pos2,
+        radius: f32,
+        time_req: std::time::Duration,
+        world_type: WorldType,
+    ) -> Self {
+        Self {
+            centre,
+            radius,
+            inverted: true,
+            total: false,
+            persistent: false,
+            empty_col: egui::Color32::DARK_GRAY,
+            held_col: egui::Color32::DARK_RED.gamma_multiply(0.2),
+            set_col: None,
+            state: ZoneState::Empty,
+            last_out: std::time::Instant::now(),
+            time_req,
+            action: Action::Reset(world_type),
             label: None,
         }
     }
@@ -243,7 +275,8 @@ impl Zone {
         Self {
             centre,
             radius,
-            inverted: true,
+            inverted: false,
+            total: false,
             persistent: false,
             empty_col: egui::Color32::DARK_GRAY,
             held_col: egui::Color32::DARK_RED.gamma_multiply(0.2),
@@ -260,6 +293,7 @@ impl Zone {
             centre,
             radius,
             inverted: false,
+            total: true,
             persistent: true,
             empty_col: egui::Color32::LIGHT_BLUE,
             held_col: egui::Color32::LIGHT_GREEN,
@@ -298,8 +332,14 @@ impl Zone {
     }
 
     fn is_complete(&mut self, snake: &Snake) -> Option<Action> {
-        if self.inverted
-            != (0..snake.order + 1).all(|n| (snake.npos(n) - self.centre).length() < self.radius)
+        // if total and all in the right place, or not total and one in the right place
+        if (self.total
+            && (0..snake.order + 1)
+                .all(|n| ((snake.npos(n) - self.centre).length() < self.radius) ^ self.inverted))
+            || (!self.total
+                && (0..snake.order + 1).any(|n| {
+                    ((snake.npos(n) - self.centre).length() < self.radius) ^ self.inverted
+                }))
         {
             if self.state != ZoneState::Set {
                 if std::time::Instant::now().duration_since(self.last_out) > self.time_req {
@@ -333,10 +373,86 @@ enum ZoneState {
 }
 
 #[derive(Debug, Clone)]
+struct Hazard {
+    centre: Pos2,
+    radius: f32,
+    col: egui::Color32,
+    interaction: Interaction,
+}
+impl Hazard {
+    fn new_attractor(centre: Pos2, radius: f32, strength: f32) -> Self {
+        Self {
+            centre,
+            radius,
+            col: egui::Color32::BLACK,
+            interaction: Interaction::Attract(strength),
+        }
+    }
+
+    fn interact(&self, snake: &mut Snake, dt: f32) {
+        match self.interaction {
+            Interaction::Attract(strength) => {
+                let dir = self.centre - snake.derivatives[0].to_pos2();
+                let dist = (0.001 as f32).max(dir.length_sq());
+                let dir = dir.normalized();
+                match snake.order {
+                    0 => match snake.state {
+                        SnakeState::Anchored(_) => {
+                            snake.derivatives[0] += dir * strength * dt * dt / dist;
+                            snake.anchor()
+                        }
+                        SnakeState::Linked(i) => {
+                            if i == 0 {
+                                snake.derivatives[0] += dir * strength * dt * dt / dist;
+                            }
+                        }
+                        _ => {}
+                    },
+                    1 => match snake.state {
+                        SnakeState::Anchored(_) => {
+                            snake.derivatives[1] += dir * strength * dt / dist;
+                            snake.anchor()
+                        }
+                        SnakeState::Linked(i) => {
+                            if i == 1 {
+                                snake.derivatives[1] += dir * strength * dt / dist;
+                            }
+                        }
+                        _ => {}
+                    },
+                    2 => match snake.state {
+                        SnakeState::Anchored(_) => {
+                            snake.derivatives[2] += dir * strength * dt / dist;
+                            snake.anchor()
+                        }
+                        _ => {}
+                    },
+                    _ => {
+                        snake.derivatives[2] += dir * strength * dt / dist;
+                    }
+                };
+            }
+        }
+    }
+
+    fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
+        let centre = trans(self.centre);
+        let radius = self.radius * unit;
+        ui.painter().circle_filled(centre, radius, self.col);
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum Interaction {
+    Attract(f32),
+}
+
+#[derive(Debug, Clone)]
 struct World {
     world_type: WorldType,
     time: std::time::Duration,
     zones: Vec<Zone>,
+    hazards: Vec<Hazard>,
     snake: Snake,
     friction: f32,
 }
@@ -346,108 +462,161 @@ impl World {
             world_type: WorldType::Debug,
             time: std::time::Duration::from_secs(0),
             zones: vec![],
+            hazards: vec![],
             snake: Snake::new(0),
             friction: 0.0001,
         }
     }
 
     fn to_type(&mut self, world_type: WorldType) {
+        self.to_type_internal(world_type, false)
+    }
+    fn to_type_move(&mut self, world_type: WorldType) {
+        self.to_type_internal(world_type, true)
+    }
+    fn to_type_internal(&mut self, world_type: WorldType, moving: bool) {
         self.world_type = world_type;
         self.time = std::time::Duration::from_secs(0);
-        self.zones = vec![Zone::new_fail(
+        self.zones = vec![Zone::new_outzone(
             pos2(0., 0.) as Pos2,
             1.,
             std::time::Duration::from_secs(5),
             if world_type.is_playfield() {
-                WorldType::Menu
+                WorldType::MainMenu
             } else {
                 world_type
             },
         )];
+        self.hazards = vec![];
+
+        let mut order = 0;
+        let mut pos = pos2(0., 0.);
+        let mut zones = vec![];
+        let mut hazards = vec![];
+        let unit = 0.25;
+        let zone_rad = 0.1;
         match world_type {
             WorldType::Debug => todo!(),
             WorldType::Standard => {
-                self.snake.set_order(0);
-                self.snake.reset(pos2(0., 0.));
                 self.add_goal();
             }
-            WorldType::Survival => {
-                self.snake.set_order(0);
-                self.snake.reset(pos2(0., 0.));
+            WorldType::Survival => {}
+            WorldType::Gravity => {
+                zones = vec![Zone::new_fail(
+                    pos2(0., 0.),
+                    2. * zone_rad,
+                    std::time::Duration::from_secs(5),
+                    WorldType::MainMenu,
+                )];
+                hazards = vec![Hazard::new_attractor(pos2(0., 0.), zone_rad / 3., 0.01)];
+                order = 2;
+                pos = pos2(0., 0.25);
             }
             WorldType::Training => {
-                self.zones.append(&mut vec![
+                zones = vec![
                     Zone::new_option(
-                        pos2(0., 0.),
-                        0.1,
-                        Action::Reset(WorldType::Menu),
+                        pos_rt(unit, PI),
+                        zone_rad,
+                        Action::Move(WorldType::MainMenu),
                         "Back".to_string(),
                     ),
                     Zone::new_option(
-                        pos2(-0.25, 0.1),
-                        0.1,
+                        pos_rt(unit, PI * 5. / 3.),
+                        zone_rad,
                         Action::AdjustNodeCount(-1),
                         "Node -".to_string(),
                     ),
                     Zone::new_option(
-                        pos2(0.25, 0.1),
-                        0.1,
+                        pos_rt(unit, PI * 1. / 3.),
+                        zone_rad,
                         Action::AdjustNodeCount(1),
                         "Node +".to_string(),
                     ),
-                ]);
-                self.snake.set_order(2);
-                self.snake.reset(pos2(0., 0.5));
+                ];
+                order = 2;
             }
-            WorldType::Menu => {
-                self.zones.append(&mut vec![
+            WorldType::MainMenu => {
+                zones = vec![
                     Zone::new_option(
                         pos2(0., 0.),
-                        0.1,
+                        zone_rad,
+                        Action::Move(WorldType::ModeSelect),
+                        "Start".to_string(),
+                    ),
+                    Zone::new_option(
+                        pos_rt(unit, PI * 4. / 3.),
+                        zone_rad,
+                        Action::Move(WorldType::Training),
+                        "Training".to_string(),
+                    ),
+                    Zone::new_option(
+                        pos_rt(unit, PI * 2. / 3.),
+                        zone_rad,
+                        Action::Move(WorldType::Options),
+                        "Options".to_string(),
+                    ),
+                    Zone::new_option(pos_rt(unit, 0.), zone_rad, Action::Exit, "Exit".to_string()),
+                ];
+                order = 2;
+                pos = pos_rt(unit, PI);
+            }
+            WorldType::ModeSelect => {
+                zones = vec![
+                    Zone::new_option(
+                        pos_rt(unit, PI),
+                        zone_rad,
+                        Action::Move(WorldType::MainMenu),
+                        "Back".to_string(),
+                    ),
+                    Zone::new_option(
+                        pos_rt(unit, 0.),
+                        zone_rad,
                         Action::Reset(WorldType::Standard),
                         "Standard".to_string(),
                     ),
                     Zone::new_option(
-                        pos2(-0.25, 0.1),
-                        0.1,
+                        pos_rt(unit, PI * 4. / 3.),
+                        zone_rad,
                         Action::Reset(WorldType::Survival),
                         "Survival".to_string(),
                     ),
                     Zone::new_option(
-                        pos2(0.25, 0.1),
-                        0.1,
-                        Action::Reset(WorldType::Options),
-                        "Options".to_string(),
+                        pos_rt(unit, PI * 2. / 3.),
+                        zone_rad,
+                        Action::Reset(WorldType::Gravity),
+                        "Gravity".to_string(),
                     ),
-                    Zone::new_option(
-                        pos2(0., -0.27),
-                        0.1,
-                        Action::Reset(WorldType::Training),
-                        "Training".to_string(),
-                    ),
-                ]);
-                self.snake.set_order(2);
-                self.snake.reset(pos2(0., 0.5));
+                ];
             }
             WorldType::Options => {
-                self.zones.append(&mut vec![
+                zones = vec![
                     Zone::new_option(
-                        pos2(0., 0.),
-                        0.1,
-                        Action::Reset(WorldType::Menu),
+                        pos_rt(unit, PI),
+                        zone_rad,
+                        Action::Move(WorldType::MainMenu),
                         "Back".to_string(),
                     ),
-                    Zone::new_option(pos2(-0.25, 0.1), 0.1, Action::Dummy, "Dummy".to_string()),
                     Zone::new_option(
-                        pos2(0.25, 0.1),
-                        0.1,
+                        pos_rt(unit, PI * 5. / 3.),
+                        zone_rad,
+                        Action::Dummy,
+                        "Dummy".to_string(),
+                    ),
+                    Zone::new_option(
+                        pos_rt(unit, PI * 1. / 3.),
+                        zone_rad,
                         Action::ToggleLeadingTrail,
                         "Leading Trail".to_string(),
                     ),
-                ]);
-                self.snake.set_order(2);
-                self.snake.reset(pos2(0., 0.5));
+                ];
+                order = 2;
             }
+        }
+        self.zones.append(&mut zones);
+        self.hazards.append(&mut hazards);
+        if !moving {
+            self.snake.set_order(order);
+            self.snake.reset(pos);
         }
     }
 
@@ -463,6 +632,9 @@ impl World {
     }
 
     fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
+        for hazard in &self.hazards {
+            hazard.draw(ui, trans, unit)
+        }
         for zone in &self.zones {
             zone.draw(ui, trans, unit);
         }
@@ -471,7 +643,10 @@ impl World {
 
     fn step(&mut self, dt: f32) {
         self.snake.step(dt, self.friction);
-        if self.world_type != WorldType::Survival
+        for hazard in &self.hazards {
+            hazard.interact(&mut self.snake, dt);
+        }
+        if !self.world_type.is_timed()
             || self
                 .zones
                 .iter()
@@ -497,19 +672,24 @@ enum WorldType {
     Debug,
     Standard,
     Survival,
+    Gravity,
     Training,
-    Menu,
+    MainMenu,
+    ModeSelect,
     Options,
 }
 impl WorldType {
     fn is_playfield(&self) -> bool {
         match self {
-            WorldType::Debug => todo!(),
-            WorldType::Standard => true,
-            WorldType::Survival => true,
-            WorldType::Training => false,
-            WorldType::Menu => false,
-            WorldType::Options => false,
+            WorldType::Standard | WorldType::Survival | WorldType::Gravity => true,
+            _ => false,
+        }
+    }
+
+    fn is_timed(&self) -> bool {
+        match self {
+            WorldType::Survival | WorldType::Gravity => true,
+            _ => false,
         }
     }
 }
@@ -517,9 +697,11 @@ impl WorldType {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum Action {
     Reset(WorldType),
+    Move(WorldType),
     Point,
     ToggleLeadingTrail,
     AdjustNodeCount(isize),
+    Exit,
     Dummy,
 }
 
@@ -571,6 +753,9 @@ impl eframe::App for App {
                         self.score = 0;
                         self.world.to_type(world_type);
                     }
+                    Action::Move(world_type) => {
+                        self.world.to_type_move(world_type);
+                    }
                     Action::Point => match self.world.world_type {
                         WorldType::Standard => {
                             self.score += 1;
@@ -588,6 +773,7 @@ impl eframe::App for App {
                             }
                         }
                     }
+                    Action::Exit => _frame.close(),
                     Action::Dummy => continue,
                 }
             }
@@ -597,7 +783,7 @@ impl eframe::App for App {
                         self.world.snake.add();
                     }
                 }
-                WorldType::Survival => {
+                WorldType::Survival | WorldType::Gravity => {
                     self.score = self.world.time.as_secs() as usize;
 
                     if (self.world.snake.order + 1) * (self.world.snake.order + 1) <= self.score {
@@ -609,7 +795,7 @@ impl eframe::App for App {
             // Drawing
             if self.world.world_type.is_playfield() {
                 ui.put(
-                    egui::Rect::from_center_size(trans(pos2(0., -0.25)), vec2(1., 1.) * (unit)),
+                    egui::Rect::from_center_size(trans(pos2(0., 0.)), vec2(1., 1.) * (unit)),
                     egui::widgets::Label::new(
                         egui::RichText::new(self.score.to_string())
                             .color(egui::Color32::DARK_GRAY)
@@ -618,7 +804,7 @@ impl eframe::App for App {
                 );
             }
             ui.put(
-                egui::Rect::from_center_size(trans(pos2(0., 0.25)), vec2(1., 1.) * (unit)),
+                egui::Rect::from_center_size(trans(pos2(0., 0.5)), vec2(1., 1.) * (unit)),
                 egui::widgets::Label::new(
                     egui::RichText::new(self.world.snake.order.to_string())
                         .color(egui::Color32::DARK_GRAY)
