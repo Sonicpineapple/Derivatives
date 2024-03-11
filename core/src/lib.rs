@@ -1,46 +1,8 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
 use eframe::egui;
 use egui::{pos2, vec2, Pos2, Vec2};
 use rand::prelude::*;
 use std::{collections::VecDeque, f32::consts::PI};
 
-fn main() -> eframe::Result<()> {
-    let native_options = eframe::NativeOptions::default();
-    eframe::run_native(
-        "Window Title",
-        native_options,
-        Box::new(|cc| Box::new(App::new(cc))),
-    )
-}
-
-struct App {
-    world: World,
-
-    score: usize,
-
-    frame_time: std::time::Instant,
-}
-impl App {
-    fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        let mut world = World::new();
-        world.to_type(WorldType::MainMenu);
-        Self {
-            world,
-
-            score: 0,
-
-            frame_time: std::time::Instant::now(),
-        }
-    }
-}
-
-fn transform(pos: Pos2, transform: (f32, Vec2)) -> Pos2 {
-    (pos.to_vec2() * transform.0).to_pos2() + transform.1
-}
-fn inv_transform(pos: Pos2, transform: (f32, Vec2)) -> Pos2 {
-    ((pos - transform.1).to_vec2() / transform.0).to_pos2()
-}
 /// Get position from radius and cw angle with 0 radians as -y
 fn pos_rt(r: f32, t: f32) -> Pos2 {
     pos2(0., 0.) + vec_rt(r, t)
@@ -51,7 +13,7 @@ fn vec_rt(r: f32, t: f32) -> Vec2 {
 }
 
 #[derive(Debug, Clone)]
-struct Snake {
+pub struct Snake {
     order: usize,
     derivatives: Vec<Vec2>,
     state: SnakeState,
@@ -153,7 +115,7 @@ impl Snake {
         }
     }
 
-    fn add(&mut self) {
+    pub fn add(&mut self) {
         self.order += 1;
         self.derivatives.push(vec2(0., 0.));
         match self.state {
@@ -165,7 +127,7 @@ impl Snake {
             _ => {}
         }
     }
-    fn remove(&mut self) {
+    pub fn remove(&mut self) {
         if self.order > 0 {
             self.order -= 1;
             self.derivatives.pop();
@@ -179,23 +141,29 @@ impl Snake {
             self.add();
         }
     }
+    pub fn order(&self) -> usize {
+        self.order
+    }
+    pub fn state_mut(&mut self) -> &mut SnakeState {
+        &mut self.state
+    }
 
-    fn toggle_leading_trail(&mut self) {
+    pub fn toggle_leading_trail(&mut self) {
         self.leading_trail = !self.leading_trail;
     }
 
-    fn reset(&mut self, pos: Pos2) {
+    pub fn reset(&mut self, pos: Pos2) {
         self.derivatives = vec![vec2(0., 0.); self.order + 1];
         self.history = VecDeque::new();
         self.derivatives[0] = pos.to_vec2();
         self.anchor();
     }
 
-    fn anchor(&mut self) {
+    pub fn anchor(&mut self) {
         self.state = SnakeState::Anchored(self.npos(self.order));
     }
 
-    fn npos(&self, n: usize) -> Pos2 {
+    pub fn npos(&self, n: usize) -> Pos2 {
         self.derivatives
             .iter()
             .take(n + 1)
@@ -203,7 +171,7 @@ impl Snake {
     }
 }
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum SnakeState {
+pub enum SnakeState {
     Following(Pos2),
     Linked(usize),
     Anchored(Pos2),
@@ -448,7 +416,7 @@ enum Interaction {
 }
 
 #[derive(Debug, Clone)]
-struct World {
+pub struct World {
     world_type: WorldType,
     time: std::time::Duration,
     zones: Vec<Zone>,
@@ -457,7 +425,7 @@ struct World {
     friction: f32,
 }
 impl World {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             world_type: WorldType::Debug,
             time: std::time::Duration::from_secs(0),
@@ -468,10 +436,10 @@ impl World {
         }
     }
 
-    fn to_type(&mut self, world_type: WorldType) {
+    pub fn to_type(&mut self, world_type: WorldType) {
         self.to_type_internal(world_type, false)
     }
-    fn to_type_move(&mut self, world_type: WorldType) {
+    pub fn to_type_move(&mut self, world_type: WorldType) {
         self.to_type_internal(world_type, true)
     }
     fn to_type_internal(&mut self, world_type: WorldType, moving: bool) {
@@ -620,7 +588,20 @@ impl World {
         }
     }
 
-    fn add_goal(&mut self) {
+    pub fn world_type(&self) -> WorldType {
+        self.world_type
+    }
+    pub fn snake(&self) -> &Snake {
+        &self.snake
+    }
+    pub fn snake_mut(&mut self) -> &mut Snake {
+        &mut self.snake
+    }
+    pub fn time(&self) -> std::time::Duration {
+        self.time
+    }
+
+    pub fn add_goal(&mut self) {
         let mut rng = rand::thread_rng();
         let r = rng.gen::<f32>().sqrt() * 3. / 4.;
         let theta = rng.gen::<f32>() * std::f32::consts::PI * 2.;
@@ -631,7 +612,7 @@ impl World {
         ))
     }
 
-    fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
+    pub fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
         for hazard in &self.hazards {
             hazard.draw(ui, trans, unit)
         }
@@ -641,7 +622,7 @@ impl World {
         self.snake.draw(ui, trans, unit);
     }
 
-    fn step(&mut self, dt: f32) {
+    pub fn step(&mut self, dt: f32) {
         self.snake.step(dt, self.friction);
         for hazard in &self.hazards {
             hazard.interact(&mut self.snake, dt);
@@ -655,7 +636,7 @@ impl World {
             self.time += std::time::Duration::from_secs_f32(dt);
         }
     }
-    fn check(&mut self) -> Vec<Action> {
+    pub fn check(&mut self) -> Vec<Action> {
         let mut actions = vec![];
         self.zones.retain_mut(|zone| {
             if let Some(action) = zone.is_complete(&self.snake) {
@@ -668,7 +649,7 @@ impl World {
     }
 }
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum WorldType {
+pub enum WorldType {
     Debug,
     Standard,
     Survival,
@@ -679,14 +660,14 @@ enum WorldType {
     Options,
 }
 impl WorldType {
-    fn is_playfield(&self) -> bool {
+    pub fn is_playfield(&self) -> bool {
         match self {
             WorldType::Standard | WorldType::Survival | WorldType::Gravity => true,
             _ => false,
         }
     }
 
-    fn is_timed(&self) -> bool {
+    pub fn is_timed(&self) -> bool {
         match self {
             WorldType::Survival | WorldType::Gravity => true,
             _ => false,
@@ -695,7 +676,7 @@ impl WorldType {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum Action {
+pub enum Action {
     Reset(WorldType),
     Move(WorldType),
     Point,
@@ -703,116 +684,4 @@ enum Action {
     AdjustNodeCount(isize),
     Exit,
     Dummy,
-}
-
-impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let last_frame = self.frame_time;
-        self.frame_time = std::time::Instant::now();
-        let dt = (self.frame_time - last_frame).as_secs_f32();
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let rect = ui.available_rect_before_wrap();
-            let (cen, size) = (rect.center(), rect.size());
-            let unit = size.min_elem() / 2.;
-
-            let trans_tup = (unit, cen.to_vec2());
-            let trans = |pos| transform(pos, trans_tup);
-            let itrans = |pos| inv_transform(pos, trans_tup);
-
-            // Physics step
-            self.world.step(dt);
-            // Controls
-            {
-                if ui.input(|input| input.pointer.primary_down()) {
-                    if let Some(mpos) = ctx.pointer_latest_pos() {
-                        self.world.snake.state = SnakeState::Following(itrans(mpos));
-                    };
-                } else if ui.input(|input| input.pointer.secondary_pressed()) {
-                    if let Some(mpos) = ctx.pointer_latest_pos() {
-                        let mpos = itrans(mpos);
-                        let target = (0..self.world.snake.order + 1)
-                            .min_by(|&a, &b| {
-                                (mpos - self.world.snake.npos(a))
-                                    .length_sq()
-                                    .total_cmp(&(mpos - self.world.snake.npos(b)).length_sq())
-                            })
-                            .expect("No closest point");
-                        self.world.snake.state = SnakeState::Linked(target);
-                    };
-                } else if ui.input(|input| input.pointer.primary_released()) {
-                    self.world.snake.anchor();
-                }
-                // if self.world.snake.order == 0 {
-                //     self.fixed = false;
-                // }
-            }
-            // Game
-            for action in self.world.check() {
-                match action {
-                    Action::Reset(world_type) => {
-                        self.score = 0;
-                        self.world.to_type(world_type);
-                    }
-                    Action::Move(world_type) => {
-                        self.world.to_type_move(world_type);
-                    }
-                    Action::Point => match self.world.world_type {
-                        WorldType::Standard => {
-                            self.score += 1;
-                            self.world.add_goal();
-                        }
-                        _ => todo!(),
-                    },
-                    Action::ToggleLeadingTrail => self.world.snake.toggle_leading_trail(),
-                    Action::AdjustNodeCount(n) => {
-                        for _ in 0..(n.abs()) {
-                            if n < 0 {
-                                self.world.snake.remove();
-                            } else {
-                                self.world.snake.add();
-                            }
-                        }
-                    }
-                    Action::Exit => _frame.close(),
-                    Action::Dummy => continue,
-                }
-            }
-            match self.world.world_type {
-                WorldType::Standard => {
-                    if (self.world.snake.order + 1) * (self.world.snake.order + 1) <= self.score {
-                        self.world.snake.add();
-                    }
-                }
-                WorldType::Survival | WorldType::Gravity => {
-                    self.score = self.world.time.as_secs() as usize;
-
-                    if (self.world.snake.order + 1) * (self.world.snake.order + 1) <= self.score {
-                        self.world.snake.add();
-                    }
-                }
-                _ => (),
-            }
-            // Drawing
-            if self.world.world_type.is_playfield() {
-                ui.put(
-                    egui::Rect::from_center_size(trans(pos2(0., 0.)), vec2(1., 1.) * (unit)),
-                    egui::widgets::Label::new(
-                        egui::RichText::new(self.score.to_string())
-                            .color(egui::Color32::DARK_GRAY)
-                            .size(unit * 1. / 2.),
-                    ),
-                );
-            }
-            ui.put(
-                egui::Rect::from_center_size(trans(pos2(0., 0.5)), vec2(1., 1.) * (unit)),
-                egui::widgets::Label::new(
-                    egui::RichText::new(self.world.snake.order.to_string())
-                        .color(egui::Color32::DARK_GRAY)
-                        .size(unit * 2. / 7.),
-                ),
-            );
-            self.world.draw(ui, &trans, unit);
-        });
-        ctx.request_repaint();
-    }
 }

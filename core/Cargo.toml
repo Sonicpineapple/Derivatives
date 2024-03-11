@@ -1,0 +1,11 @@
+[package]
+name = "derivatives_core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+colorous = "1.0.10"
+eframe = "0.21.3"
+egui = "0.21.0"
+itertools = "0.10.5"
+rand = "0.8.5"

@@ -594,7 +594,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "derivatives"
+name = "derivatives_client"
+version = "0.1.0"
+dependencies = [
+ "colorous",
+ "derivatives_core",
+ "eframe",
+ "egui",
+ "itertools",
+ "rand",
+]
+
+[[package]]
+name = "derivatives_core"
 version = "0.1.0"
 dependencies = [
  "colorous",
