@@ -1,7 +1,11 @@
 use eframe::egui;
 use egui::{pos2, vec2, Pos2, Vec2};
 use rand::prelude::*;
-use std::{collections::VecDeque, f32::consts::PI};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{HashMap, VecDeque},
+    f32::consts::PI,
+};
 
 /// Get position from radius and cw angle with 0 radians as -y
 fn pos_rt(r: f32, t: f32) -> Pos2 {
@@ -12,25 +16,39 @@ fn vec_rt(r: f32, t: f32) -> Vec2 {
     r * vec2(t.sin(), -t.cos())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
+enum ColScheme {
+    Sinebow,
+}
+impl ColScheme {
+    fn gradient(&self) -> colorous::Gradient {
+        match self {
+            ColScheme::Sinebow => colorous::SINEBOW,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snake {
+    id: u8,
     order: usize,
     derivatives: Vec<Vec2>,
     state: SnakeState,
     memory: usize,
     history: VecDeque<Vec<Pos2>>,
-    spectrum: colorous::Gradient,
+    spectrum: ColScheme,
     leading_trail: bool,
 }
 impl Snake {
-    fn new(order: usize) -> Self {
+    pub fn new(id: u8, order: usize) -> Self {
         Self {
+            id,
             order,
             derivatives: vec![vec2(0., 0.); order + 1],
             state: SnakeState::Anchored(pos2(0., 0.)),
-            memory: 200,
+            memory: 100, //reset to 200
             history: VecDeque::new(),
-            spectrum: colorous::SINEBOW,
+            spectrum: ColScheme::Sinebow,
             leading_trail: false,
         }
     }
@@ -42,6 +60,7 @@ impl Snake {
                 if self.leading_trail || i < self.order {
                     let col = self
                         .spectrum
+                        .gradient()
                         .eval_rational(i, h.len() + if self.leading_trail { 0 } else { 1 });
                     let col = egui::Color32::from_rgba_unmultiplied(
                         col.r,
@@ -71,14 +90,7 @@ impl Snake {
         }
     }
     fn step(&mut self, dt: f32, friction: f32) {
-        self.history.push_back(
-            (0..(self.order + if self.leading_trail { 1 } else { 0 }))
-                .map(|i| self.npos(i))
-                .collect(),
-        );
-        while self.history.len() > self.memory {
-            self.history.pop_front();
-        }
+        self.step_history();
         for i in (1..(self.derivatives.len())).rev() {
             let temp = self.derivatives[i];
             self.derivatives[i - 1] += temp * dt;
@@ -112,6 +124,16 @@ impl Snake {
                     };
             }
             SnakeState::Drifting => todo!(),
+        }
+    }
+    fn step_history(&mut self) {
+        self.history.push_back(
+            (0..(self.order + if self.leading_trail { 1 } else { 0 }))
+                .map(|i| self.npos(i))
+                .collect(),
+        );
+        while self.history.len() > self.memory {
+            self.history.pop_front();
         }
     }
 
@@ -159,6 +181,31 @@ impl Snake {
         self.anchor();
     }
 
+    pub fn id(&self) -> u8 {
+        self.id
+    }
+    pub fn set_id(&mut self, id: u8) {
+        self.id = id;
+    }
+
+    pub fn follow(&mut self, target: Pos2) {
+        self.state = SnakeState::Following(target);
+        *self.derivatives.last_mut().unwrap() = target
+            - if self.order > 0 {
+                self.npos(self.order - 1)
+            } else {
+                pos2(0., 0.)
+            };
+    }
+    pub fn link(&mut self, target: usize) {
+        self.state = SnakeState::Linked(target);
+        *self.derivatives.last_mut().unwrap() = self.npos(target)
+            - if self.order > 0 {
+                self.npos(self.order - 1)
+            } else {
+                pos2(0., 0.)
+            };
+    }
     pub fn anchor(&mut self) {
         self.state = SnakeState::Anchored(self.npos(self.order));
     }
@@ -169,8 +216,28 @@ impl Snake {
             .take(n + 1)
             .fold(pos2(0., 0.), |a, &b| a + b)
     }
+
+    pub fn data(&self) -> SnakeData {
+        SnakeData {
+            id: self.id,
+            order: self.order,
+            derivatives: self.derivatives.clone(),
+            state: self.state,
+            spectrum: self.spectrum,
+            leading_trail: self.leading_trail,
+        }
+    }
+    pub fn set_data(&mut self, data: SnakeData) {
+        self.set_id(data.id);
+        self.leading_trail = data.leading_trail;
+        self.step_history();
+        self.set_order(data.order);
+        self.derivatives = data.derivatives;
+        self.state = data.state;
+        self.spectrum = data.spectrum;
+    }
 }
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SnakeState {
     Following(Pos2),
     Linked(usize),
@@ -422,6 +489,7 @@ pub struct World {
     zones: Vec<Zone>,
     hazards: Vec<Hazard>,
     snake: Snake,
+    guests: HashMap<u8, Snake>,
     friction: f32,
 }
 impl World {
@@ -431,7 +499,8 @@ impl World {
             time: std::time::Duration::from_secs(0),
             zones: vec![],
             hazards: vec![],
-            snake: Snake::new(0),
+            snake: Snake::new(0, 0),
+            guests: HashMap::new(),
             friction: 0.0001,
         }
     }
@@ -579,6 +648,7 @@ impl World {
                 ];
                 order = 2;
             }
+            WorldType::Arena => {}
         }
         self.zones.append(&mut zones);
         self.hazards.append(&mut hazards);
@@ -596,6 +666,12 @@ impl World {
     }
     pub fn snake_mut(&mut self) -> &mut Snake {
         &mut self.snake
+    }
+    pub fn guests(&self) -> &HashMap<u8, Snake> {
+        &self.guests
+    }
+    pub fn guests_mut(&mut self) -> &mut HashMap<u8, Snake> {
+        &mut self.guests
     }
     pub fn time(&self) -> std::time::Duration {
         self.time
@@ -618,6 +694,9 @@ impl World {
         }
         for zone in &self.zones {
             zone.draw(ui, trans, unit);
+        }
+        for guest in self.guests().values() {
+            guest.draw(ui, trans, unit);
         }
         self.snake.draw(ui, trans, unit);
     }
@@ -658,6 +737,7 @@ pub enum WorldType {
     MainMenu,
     ModeSelect,
     Options,
+    Arena,
 }
 impl WorldType {
     pub fn is_playfield(&self) -> bool {
@@ -673,6 +753,13 @@ impl WorldType {
             _ => false,
         }
     }
+
+    pub fn is_multiplayer(&self) -> bool {
+        match self {
+            WorldType::Arena => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -684,4 +771,38 @@ pub enum Action {
     AdjustNodeCount(isize),
     Exit,
     Dummy,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SnakeData {
+    id: u8,
+    order: usize,
+    derivatives: Vec<Vec2>,
+    state: SnakeState,
+    spectrum: ColScheme,
+    leading_trail: bool,
+}
+impl SnakeData {
+    pub fn id(&self) -> u8 {
+        self.id
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum Message {
+    Connect,
+    Id(u8),
+    Snake(SnakeData),
+    Disconnect,
+    Heartbeat,
+    Join(u8),
+    Leave(u8),
+}
+impl Message {
+    pub fn ser(&self) -> Vec<u8> {
+        serde_json::to_string(self).unwrap().as_bytes().to_vec()
+    }
+    pub fn deser(b: &[u8]) -> Result<Self, serde_json::Error> {
+        serde_json::from_slice(b)
+    }
 }

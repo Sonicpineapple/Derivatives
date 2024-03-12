@@ -1,15 +1,14 @@
 [package]
-name = "derivatives_client"
+name = "derivatives_server"
 version = "0.1.0"
 edition = "2021"
-
-[[bin]]
-name = "client"
-path = "src/main.rs"
 
 [dependencies]
 colorous = "1.0.10"
 eframe = "0.21.3"
 egui = "0.21.0"
+itertools = "0.10.5"
+rand = "0.8.5"
 derivatives_core = {path = "../core"}
 laminar = "0.5.0"
+bimap = "0.6.3"
