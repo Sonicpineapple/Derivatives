@@ -32,18 +32,9 @@ impl App {
         let game_state_ref = Arc::clone(&game_state);
         std::thread::spawn(move || {
             const SERVER: &str = "127.0.0.1:12345";
-            let addr = "127.0.0.1:11111";
-            let mut socket = Socket::bind(addr).expect("Bad");
-            println!("Connected on {}", addr);
-
+            let addr = "127.0.0.1:11112";
             let server = SERVER.parse().unwrap();
-
-            // let mut game_state = game_state_ref.lock().unwrap();
-            // if game_state.world.world_type().is_multiplayer() {}
-            socket
-                .send(Packet::reliable_unordered(server, Message::Connect.ser()))
-                .expect("BAAAAD");
-            socket.manual_poll(std::time::Instant::now());
+            let mut socket: Option<Socket> = None;
 
             let tick_rate = std::time::Duration::from_secs_f64(1.0 / 60.0);
             let mut frame_time = std::time::Instant::now();
@@ -51,59 +42,65 @@ impl App {
             loop {
                 let mut game_state = game_state_ref.lock().unwrap();
 
-                socket.manual_poll(std::time::Instant::now());
-                while let Some(event) = socket.recv() {
-                    match event {
-                        SocketEvent::Packet(packet) => {
-                            if packet.addr() == server {
-                                if let Ok(msg) = Message::deser(packet.payload()) {
-                                    match msg {
-                                        Message::Id(id) => {
-                                            game_state.world.snake_mut().set_id(id);
-                                            println!("Connected with id {}", id);
-                                        }
-                                        Message::Snake(snake_data) => {
-                                            if snake_data.id() != game_state.world.snake().id() {
-                                                game_state
+                if game_state.world.world_type().is_multiplayer() {
+                    if let Some(socket) = socket.as_mut() {
+                        socket.manual_poll(std::time::Instant::now());
+                        while let Some(event) = socket.recv() {
+                            match event {
+                                SocketEvent::Packet(packet) => {
+                                    if packet.addr() == server {
+                                        if let Ok(msg) = Message::deser(packet.payload()) {
+                                            match msg {
+                                                Message::Id(id) => {
+                                                    game_state.world.snake_mut().set_id(id);
+                                                    println!("Connected with id {}", id);
+                                                }
+                                                Message::Snake(snake_data) => {
+                                                    if snake_data.id()
+                                                        != game_state.world.snake().id()
+                                                    {
+                                                        game_state
+                                                            .world
+                                                            .guests_mut()
+                                                            .get_mut(&snake_data.id())
+                                                            .expect(
+                                                                &("Guest ".to_owned()
+                                                                    + &snake_data.id().to_string()
+                                                                    + " doesn't exist"),
+                                                            )
+                                                            .set_data(snake_data);
+                                                    }
+                                                }
+                                                Message::Heartbeat => {}
+                                                Message::Join(id) => {
+                                                    if id != game_state.world.snake().id() {
+                                                        game_state
+                                                            .world
+                                                            .guests_mut()
+                                                            .insert(id, Snake::new(id, 3));
+                                                    }
+                                                    println!("id {} joined", id);
+                                                }
+                                                Message::Leave(leave_id) => game_state
                                                     .world
                                                     .guests_mut()
-                                                    .get_mut(&snake_data.id())
-                                                    .expect(
-                                                        &("Guest ".to_owned()
-                                                            + &snake_data.id().to_string()
-                                                            + " doesn't exist"),
-                                                    )
-                                                    .set_data(snake_data);
+                                                    .retain(|&id, _| id != leave_id),
+                                                _ => todo!(),
                                             }
+                                        } else {
+                                            println!("Garbage message");
                                         }
-                                        Message::Heartbeat => {}
-                                        Message::Join(id) => {
-                                            if id != game_state.world.snake().id() {
-                                                game_state
-                                                    .world
-                                                    .guests_mut()
-                                                    .insert(id, Snake::new(id, 3));
-                                            }
-                                            println!("id {} joined", id);
-                                        }
-                                        Message::Leave(leave_id) => game_state
-                                            .world
-                                            .guests_mut()
-                                            .retain(|&id, _| id != leave_id),
-                                        _ => todo!(),
+                                    } else {
+                                        println!("Unknown sender.");
                                     }
-                                } else {
-                                    println!("Garbage message");
                                 }
-                            } else {
-                                println!("Unknown sender.");
+                                SocketEvent::Timeout(_) => {
+                                    println!("Timed out")
+                                }
+                                _ => {
+                                    dbg!(event);
+                                }
                             }
-                        }
-                        SocketEvent::Timeout(_) => {
-                            println!("Timed out")
-                        }
-                        _ => {
-                            dbg!(event);
                         }
                     }
                 }
@@ -145,6 +142,30 @@ impl App {
                         }
                         Action::Exit => game_state.exit(),
                         Action::Dummy => continue,
+                        Action::JoinMultiplayer => {
+                            let mut skt = Socket::bind(addr).expect("Bad");
+                            println!("Connected on {}", addr);
+                            // let mut game_state = game_state_ref.lock().unwrap();
+                            // if game_state.world.world_type().is_multiplayer() {}
+                            skt.send(Packet::reliable_unordered(server, Message::Connect.ser()))
+                                .expect("BAAAAD");
+                            skt.manual_poll(std::time::Instant::now());
+                            socket = Some(skt);
+                            game_state.world.to_type_move(WorldType::ArenaMenu);
+                        }
+                        Action::LeaveMultiplayer => {
+                            if let Some(mut socket) = socket {
+                                socket
+                                    .send(Packet::reliable_unordered(
+                                        server,
+                                        Message::Disconnect.ser(),
+                                    ))
+                                    .expect("BAAAAD");
+                                socket.manual_poll(std::time::Instant::now());
+                            }
+                            socket = None;
+                            game_state.world.to_type_move(WorldType::MainMenu);
+                        }
                     }
                 }
                 match game_state.world.world_type() {
@@ -169,22 +190,26 @@ impl App {
                     _ => (),
                 }
 
-                let snake_data = game_state.world.snake().data();
-                socket
-                    .send(Packet::reliable_unordered(
-                        server,
-                        Message::Snake(snake_data).ser(),
-                    ))
-                    .expect("BAAAAD");
-                socket
-                    .send(Packet::reliable_unordered(server, Message::Heartbeat.ser()))
-                    .expect("BAAAAD");
-                // let mut msg = Message::Snake(game_state.world.snake().clone()).ser();
-                // msg.append(&mut Message::Snake(game_state.world.snake().clone()).ser());
-                // socket
-                //     .send(Packet::reliable_unordered(server, msg))
-                //     .expect("BAAAAD");
-                socket.manual_poll(std::time::Instant::now());
+                if game_state.world.world_type().is_multiplayer() {
+                    if let Some(socket) = socket.as_mut() {
+                        let snake_data = game_state.world.snake().data();
+                        socket
+                            .send(Packet::reliable_unordered(
+                                server,
+                                Message::Snake(snake_data).ser(),
+                            ))
+                            .expect("BAAAAD");
+                        socket
+                            .send(Packet::reliable_unordered(server, Message::Heartbeat.ser()))
+                            .expect("BAAAAD");
+                        // let mut msg = Message::Snake(game_state.world.snake().clone()).ser();
+                        // msg.append(&mut Message::Snake(game_state.world.snake().clone()).ser());
+                        // socket
+                        //     .send(Packet::reliable_unordered(server, msg))
+                        //     .expect("BAAAAD");
+                        socket.manual_poll(std::time::Instant::now());
+                    }
+                }
 
                 drop(game_state);
                 if frame_time.elapsed() < tick_rate {

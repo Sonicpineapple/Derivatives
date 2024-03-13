@@ -85,18 +85,19 @@ fn server() -> Result<(), ErrorKind> {
                     }
                 }
                 SocketEvent::Timeout(address) => {
-                    let &leave_id = clients
-                        .get_by_right(&address)
-                        .expect("Address not assigned id");
-                    println!("Client timed out: {}, id {}", address, leave_id);
-                    clients.retain(|_, &addr| addr != address);
-                    for &addr in clients.right_values() {
-                        sender
-                            .send(Packet::reliable_unordered(
-                                addr,
-                                Message::Leave(leave_id).ser(),
-                            ))
-                            .expect("This should send");
+                    if let Some(&leave_id) = clients.get_by_right(&address) {
+                        println!("Client timed out: {}, id {}", address, leave_id);
+                        clients.retain(|_, &addr| addr != address);
+                        for &addr in clients.right_values() {
+                            sender
+                                .send(Packet::reliable_unordered(
+                                    addr,
+                                    Message::Leave(leave_id).ser(),
+                                ))
+                                .expect("This should send");
+                        }
+                    } else {
+                        println!("Unknown timeout {}", address);
                     }
                 }
                 _ => {

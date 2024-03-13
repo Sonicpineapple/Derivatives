@@ -623,6 +623,12 @@ impl World {
                         Action::Reset(WorldType::Gravity),
                         "Gravity".to_string(),
                     ),
+                    Zone::new_option(
+                        pos_rt(unit, PI * 1. / 3.),
+                        zone_rad,
+                        Action::JoinMultiplayer,
+                        "Mutliplayer".to_string(),
+                    ),
                 ];
             }
             WorldType::Options => {
@@ -648,7 +654,14 @@ impl World {
                 ];
                 order = 2;
             }
-            WorldType::Arena => {}
+            WorldType::ArenaMenu => {
+                zones = vec![Zone::new_option(
+                    pos_rt(unit, PI),
+                    zone_rad,
+                    Action::LeaveMultiplayer,
+                    "Back".to_string(),
+                )];
+            }
         }
         self.zones.append(&mut zones);
         self.hazards.append(&mut hazards);
@@ -737,7 +750,7 @@ pub enum WorldType {
     MainMenu,
     ModeSelect,
     Options,
-    Arena,
+    ArenaMenu,
 }
 impl WorldType {
     pub fn is_playfield(&self) -> bool {
@@ -756,7 +769,7 @@ impl WorldType {
 
     pub fn is_multiplayer(&self) -> bool {
         match self {
-            WorldType::Arena => true,
+            WorldType::ArenaMenu => true,
             _ => false,
         }
     }
@@ -771,6 +784,8 @@ pub enum Action {
     AdjustNodeCount(isize),
     Exit,
     Dummy,
+    JoinMultiplayer,
+    LeaveMultiplayer,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
