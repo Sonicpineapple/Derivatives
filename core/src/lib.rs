@@ -33,6 +33,7 @@ pub enum ColSingle {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snake {
     id: u8,
+    team: u8,
     order: usize,
     derivatives: Vec<Vec2>,
     state: SnakeState,
@@ -45,6 +46,7 @@ impl Snake {
     pub fn new(id: u8, order: usize) -> Self {
         Self {
             id,
+            team: 0,
             order,
             derivatives: vec![vec2(0., 0.); order + 1],
             state: SnakeState::Anchored(pos2(0., 0.)),
@@ -203,6 +205,12 @@ impl Snake {
     pub fn set_id(&mut self, id: u8) {
         self.id = id;
     }
+    pub fn team(&self) -> u8 {
+        self.team
+    }
+    pub fn set_team(&mut self, team: u8) {
+        self.team = team;
+    }
 
     pub fn follow(&mut self, target: Pos2) {
         self.state = SnakeState::Following(target);
@@ -236,6 +244,7 @@ impl Snake {
     pub fn data(&self) -> SnakeData {
         SnakeData {
             id: self.id,
+            team: self.team,
             order: self.order,
             derivatives: self.derivatives.clone(),
             state: self.state,
@@ -245,12 +254,54 @@ impl Snake {
     }
     pub fn set_data(&mut self, data: SnakeData) {
         self.set_id(data.id);
+        self.set_team(data.team);
         self.leading_trail = data.leading_trail;
         self.step_history();
         self.set_order(data.order);
         self.derivatives = data.derivatives;
         self.state = data.state;
         self.scheme = data.spectrum;
+    }
+    fn interact(&mut self, other: &Snake, dt: f32) {
+        let dir = other.derivatives[0].to_pos2() - self.derivatives[0].to_pos2();
+        let dist = (0.001 as f32).max(dir.length_sq());
+        let dir = dir.normalized();
+        match self.order {
+            0 => match self.state {
+                SnakeState::Anchored(_) => {
+                    self.derivatives[0] += dir * 0.01 * dt * dt / dist;
+                    self.anchor()
+                }
+                SnakeState::Linked(i) => {
+                    if i == 0 {
+                        self.derivatives[0] += dir * 0.01 * dt * dt / dist;
+                    }
+                }
+                _ => {}
+            },
+            1 => match self.state {
+                SnakeState::Anchored(_) => {
+                    self.derivatives[1] += dir * 0.01 * dt / dist;
+                    self.anchor()
+                }
+                SnakeState::Linked(i) => {
+                    if i == 1 {
+                        self.derivatives[1] += dir * 0.01 * dt / dist;
+                    }
+                }
+                _ => {}
+            },
+            2 => match self.state {
+                SnakeState::Anchored(_) => {
+                    self.derivatives[2] += dir * 0.01 * dt / dist;
+                    self.anchor()
+                }
+                _ => {}
+            },
+            _ => {
+                self.derivatives[2] += dir * 0.01 * dt / dist;
+            }
+        };
     }
 }
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -384,30 +435,6 @@ impl Zone {
             ZoneState::Set => self.set_col.expect("No held col"),
         }
     }
-    // fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
-    //     let centre = trans(self.centre);
-    //     let radius = self.radius * unit;
-    //     let edge_width = unit / 50.;
-    //     let label_size = unit / 30.;
-    //     ui.painter().circle_stroke(
-    //         centre,
-    //         radius,
-    //         (
-    //             edge_width,
-    //             match self.state {
-    //                 ZoneState::Empty => self.empty_col,
-    //                 ZoneState::Held => self.held_col,
-    //                 ZoneState::Set => self.set_col.expect("No set colour"),
-    //             },
-    //         ),
-    //     );
-    //     if let Some(label) = &self.label {
-    //         ui.put(
-    //             egui::Rect::from_center_size(centre, (2. * (radius - edge_width)) * vec2(1., 1.)),
-    //             egui::widgets::Label::new(egui::RichText::new(label).size(label_size)),
-    //         );
-    //     }
-    // }
     pub fn empty_col(&self) -> ColSingle {
         self.empty_col
     }
@@ -429,12 +456,6 @@ impl Zone {
     pub fn radius(&self) -> f32 {
         self.radius
     }
-    // pub fn progress(&self) -> f32 {
-    //     std::time::Instant::now()
-    //         .duration_since(self.last_out)
-    //         .as_secs_f32()
-    //         / self.time_req.as_secs_f32()
-    // }
     pub fn progress(&self) -> f32 {
         self.progress
     }
@@ -453,7 +474,6 @@ impl Zone {
                 }))
         {
             if self.state != ZoneState::Set {
-                // if std::time::Instant::now().duration_since(self.last_out) > self.time_req {
                 if self.progress() > 1. {
                     self.state = ZoneState::Set;
                     return Some(self.action);
@@ -603,6 +623,8 @@ impl World {
             std::time::Duration::from_secs(5),
             if world_type.is_playfield() {
                 WorldType::MainMenu
+            } else if world_type.is_multiplayer() {
+                WorldType::ArenaMenu
             } else {
                 world_type
             },
@@ -738,12 +760,43 @@ impl World {
                 order = 2;
             }
             WorldType::ArenaMenu => {
-                zones = vec![Zone::new_option(
-                    pos_rt(unit, PI),
-                    zone_rad,
-                    Action::LeaveMultiplayer,
-                    "Back".to_string(),
-                )];
+                zones = vec![
+                    Zone::new_option(
+                        pos_rt(unit, PI),
+                        zone_rad,
+                        Action::LeaveMultiplayer,
+                        "Back".to_string(),
+                    ),
+                    Zone::new_option(
+                        pos_rt(unit, 0.),
+                        zone_rad,
+                        Action::RegisterTeam(0),
+                        "Spectate".to_string(),
+                    ),
+                    Zone::new_option(
+                        pos_rt(unit, PI * 3. / 2.),
+                        zone_rad,
+                        Action::RegisterTeam(1),
+                        "Team 1".to_string(),
+                    ),
+                    Zone::new_option(
+                        pos_rt(unit, PI / 2.),
+                        zone_rad,
+                        Action::RegisterTeam(2),
+                        "Team 2".to_string(),
+                    ),
+                ];
+                order = 2;
+                self.snake.set_team(0);
+                pos = pos_rt(0., 0.);
+            }
+            WorldType::Arena => {
+                order = 3;
+                pos = match self.snake.team {
+                    1 => pos_rt(unit, PI * 3. / 2.),
+                    2 => pos_rt(unit, PI / 2.),
+                    _ => pos_rt(unit, 0.),
+                }
             }
         }
         self.zones.append(&mut zones);
@@ -798,6 +851,14 @@ impl World {
         for zone in &mut self.zones {
             zone.step(dt);
         }
+        if self.world_type.is_arena() {
+            for (_, guest) in &mut self.guests {
+                if self.snake.team != guest.team && self.snake.team * guest.team != 0 {
+                    self.snake.interact(guest, dt);
+                    guest.interact(&self.snake, dt);
+                }
+            }
+        }
         if !self.world_type.is_timed()
             || self
                 .zones
@@ -830,11 +891,19 @@ pub enum WorldType {
     ModeSelect,
     Options,
     ArenaMenu,
+    Arena,
 }
 impl WorldType {
     pub fn is_playfield(&self) -> bool {
         match self {
             WorldType::Standard | WorldType::Survival | WorldType::Gravity => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_arena(&self) -> bool {
+        match self {
+            WorldType::Arena => true,
             _ => false,
         }
     }
@@ -848,7 +917,7 @@ impl WorldType {
 
     pub fn is_multiplayer(&self) -> bool {
         match self {
-            WorldType::ArenaMenu => true,
+            WorldType::ArenaMenu | WorldType::Arena => true,
             _ => false,
         }
     }
@@ -865,11 +934,13 @@ pub enum Action {
     Dummy,
     JoinMultiplayer,
     LeaveMultiplayer,
+    RegisterTeam(u8),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SnakeData {
     id: u8,
+    team: u8,
     order: usize,
     derivatives: Vec<Vec2>,
     state: SnakeState,
@@ -891,6 +962,9 @@ pub enum Message {
     Heartbeat,
     Join(u8),
     Leave(u8),
+    RegisterTeam(u8),
+    StartArena,
+    EndArena,
 }
 impl Message {
     pub fn ser(&self) -> Vec<u8> {

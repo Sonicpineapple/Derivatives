@@ -31,8 +31,15 @@ impl App {
 
         let game_state_ref = Arc::clone(&game_state);
         std::thread::spawn(move || {
+            //for localhost
             const SERVER: &str = "127.0.0.1:12345";
-            let addr = "127.0.0.1:11112";
+            //for localhost
+            // const SERVER: &str = "Your.Server.Ip.Here:12345";
+
+            //for localhost
+            let addr = "127.0.0.1:11111";
+            //for webhost
+            // let addr = "0.0.0.0:11111";
             let server = SERVER.parse().unwrap();
             let mut socket: Option<Socket> = None;
 
@@ -59,16 +66,18 @@ impl App {
                                                     if snake_data.id()
                                                         != game_state.world.snake().id()
                                                     {
-                                                        game_state
+                                                        if let Some(guest) = game_state
                                                             .world
                                                             .guests_mut()
                                                             .get_mut(&snake_data.id())
-                                                            .expect(
-                                                                &("Guest ".to_owned()
-                                                                    + &snake_data.id().to_string()
-                                                                    + " doesn't exist"),
+                                                        {
+                                                            guest.set_data(snake_data);
+                                                        } else {
+                                                            println!(
+                                                                "Guest {} doesn't exist",
+                                                                snake_data.id()
                                                             )
-                                                            .set_data(snake_data);
+                                                        }
                                                     }
                                                 }
                                                 Message::Heartbeat => {}
@@ -85,6 +94,12 @@ impl App {
                                                     .world
                                                     .guests_mut()
                                                     .retain(|&id, _| id != leave_id),
+                                                Message::StartArena => {
+                                                    game_state.world.to_type(WorldType::Arena)
+                                                }
+                                                Message::EndArena => {
+                                                    game_state.world.to_type(WorldType::ArenaMenu)
+                                                }
                                                 _ => todo!(),
                                             }
                                         } else {
@@ -116,6 +131,19 @@ impl App {
                     match action {
                         Action::Reset(world_type) => {
                             game_state.score = 0;
+                            if game_state.world.world_type().is_multiplayer()
+                                && game_state.world.world_type().is_arena()
+                            {
+                                if let Some(socket) = socket.as_mut() {
+                                    socket
+                                        .send(Packet::reliable_unordered(
+                                            server,
+                                            Message::RegisterTeam(0).ser(),
+                                        ))
+                                        .expect("BAAAAD");
+                                    socket.manual_poll(std::time::Instant::now());
+                                }
+                            }
                             game_state.world.to_type(world_type);
                         }
                         Action::Move(world_type) => {
@@ -154,7 +182,7 @@ impl App {
                             game_state.world.to_type_move(WorldType::ArenaMenu);
                         }
                         Action::LeaveMultiplayer => {
-                            if let Some(mut socket) = socket {
+                            if let Some(socket) = socket.as_mut() {
                                 socket
                                     .send(Packet::reliable_unordered(
                                         server,
@@ -164,7 +192,22 @@ impl App {
                                 socket.manual_poll(std::time::Instant::now());
                             }
                             socket = None;
+                            game_state.world.guests_mut().clear();
                             game_state.world.to_type_move(WorldType::MainMenu);
+                        }
+                        Action::RegisterTeam(team_id) => {
+                            if game_state.world.world_type().is_multiplayer() {
+                                if let Some(socket) = socket.as_mut() {
+                                    game_state.world.snake_mut().set_team(team_id);
+                                    socket
+                                        .send(Packet::reliable_unordered(
+                                            server,
+                                            Message::RegisterTeam(team_id).ser(),
+                                        ))
+                                        .expect("BAAAAD");
+                                    socket.manual_poll(std::time::Instant::now());
+                                }
+                            }
                         }
                     }
                 }
