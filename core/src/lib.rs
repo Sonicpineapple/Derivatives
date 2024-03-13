@@ -18,6 +18,27 @@ fn vec_rt(r: f32, t: f32) -> Vec2 {
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ColScheme {
     Sinebow,
+    Reds,
+    Greens,
+    Blues,
+    Purples,
+    Spectral,
+    Cool,
+    Warm,
+}
+impl ColScheme {
+    fn next_scheme(&self) -> Self {
+        match self {
+            ColScheme::Sinebow => ColScheme::Reds,
+            ColScheme::Reds => ColScheme::Greens,
+            ColScheme::Greens => ColScheme::Blues,
+            ColScheme::Blues => ColScheme::Purples,
+            ColScheme::Purples => ColScheme::Spectral,
+            ColScheme::Spectral => ColScheme::Cool,
+            ColScheme::Cool => ColScheme::Warm,
+            ColScheme::Warm => ColScheme::Sinebow,
+        }
+    }
 }
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ColSingle {
@@ -191,6 +212,12 @@ impl Snake {
     }
     pub fn scheme(&self) -> ColScheme {
         self.scheme
+    }
+    pub fn set_scheme(&mut self, scheme: ColScheme) {
+        self.scheme = scheme
+    }
+    pub fn cycle_scheme(&mut self) {
+        self.scheme = self.scheme.next_scheme()
     }
     pub fn reset(&mut self, pos: Pos2) {
         self.derivatives = vec![vec2(0., 0.); self.order + 1];
@@ -747,8 +774,8 @@ impl World {
                     Zone::new_option(
                         pos_rt(unit, PI * 5. / 3.),
                         zone_rad,
-                        Action::Dummy,
-                        "Dummy".to_string(),
+                        Action::CycleColScheme,
+                        "Cycle Scheme".to_string(),
                     ),
                     Zone::new_option(
                         pos_rt(unit, PI * 1. / 3.),
@@ -935,6 +962,8 @@ pub enum Action {
     JoinMultiplayer,
     LeaveMultiplayer,
     RegisterTeam(u8),
+    SetColScheme(ColScheme),
+    CycleColScheme,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -5,9 +5,9 @@ use std::{collections::HashMap, net::SocketAddr, thread};
 use derivatives_core::Message;
 
 // for localhost
-const SERVER: &str = "127.0.0.1:12345";
+// const SERVER: &str = "127.0.0.1:12345";
 // for webhost
-// const SERVER: &str = "0.0.0.0:12345";
+const SERVER: &str = "0.0.0.0:12345";
 
 fn server() -> Result<(), ErrorKind> {
     let mut socket = Socket::bind(SERVER)?;

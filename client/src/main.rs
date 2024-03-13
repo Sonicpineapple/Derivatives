@@ -20,29 +20,35 @@ struct App {
     game_state: Arc<Mutex<GameState>>,
 }
 impl App {
-    fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut world = World::new();
         world.to_type(WorldType::MainMenu);
+        if let Some(storage) = cc.storage {
+            if let Some(scheme) = eframe::get_value(storage, "Scheme") {
+                world.snake_mut().set_scheme(scheme);
+            }
+        }
         let game_state = Arc::new(Mutex::new(GameState {
             world,
             score: 0,
             exiting: false,
+            needs_save: false,
         }));
 
         let game_state_ref = Arc::clone(&game_state);
         std::thread::spawn(move || {
             //for localhost
-            const SERVER: &str = "127.0.0.1:12345";
-
+            // const SERVER: &str = "127.0.0.1:12345";
             //for webhost
             // const SERVER: &str = "Your.Server.Ip.Here:12345";
+            const SERVER: &str = include_str!("../../server_ip.txt");
 
             //for localhost
-            let addr = "127.0.0.1:11111";
+            // let addr = "127.0.0.1:11111";
             //for webhost
-            // let addr = "0.0.0.0:11111";
+            let addr = "0.0.0.0:11111";
 
-            let server = SERVER.parse().unwrap();
+            let server = SERVER.trim().parse().unwrap();
             let mut socket: Option<Socket> = None;
 
             let tick_rate = std::time::Duration::from_secs_f64(1.0 / 60.0);
@@ -211,6 +217,14 @@ impl App {
                                 }
                             }
                         }
+                        Action::SetColScheme(scheme) => {
+                            game_state.world.snake_mut().set_scheme(scheme);
+                            game_state.needs_save = true;
+                        }
+                        Action::CycleColScheme => {
+                            game_state.world.snake_mut().cycle_scheme();
+                            game_state.needs_save = true;
+                        }
                     }
                 }
                 match game_state.world.world_type() {
@@ -268,10 +282,9 @@ impl App {
 
 struct GameState {
     world: World,
-
     score: usize,
-
     exiting: bool,
+    needs_save: bool,
 }
 impl GameState {
     fn set_snake_follow_target(&mut self, mpos: Pos2) {
@@ -314,9 +327,19 @@ fn draw_world(world: &World, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, un
         draw_zone(zone, ui, trans, unit);
     }
     for guest in world.guests().values() {
-        draw_snake(guest, ui, trans, unit);
+        let gamma_mult = if world.world_type().is_multiplayer() && guest.team() == 0 {
+            0.5
+        } else {
+            1.
+        };
+        draw_snake(guest, ui, trans, unit, gamma_mult);
     }
-    draw_snake(world.snake(), ui, trans, unit);
+    let gamma_mult = if world.world_type().is_arena() && world.snake().team() == 0 {
+        0.75
+    } else {
+        1.
+    };
+    draw_snake(world.snake(), ui, trans, unit, gamma_mult);
 }
 fn draw_hazard(
     hazard: &derivatives_core::Hazard,
@@ -369,20 +392,23 @@ fn draw_zone(
         );
     }
 }
-fn draw_snake(snake: &Snake, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
+fn draw_snake(
+    snake: &Snake,
+    ui: &mut egui::Ui,
+    trans: &dyn Fn(Pos2) -> Pos2,
+    unit: f32,
+    gamma_mult: f32,
+) {
     let node_rad = unit / 50.;
     let line_width = unit / 80.;
     for (t, h) in snake.history().iter().enumerate() {
         for (i, &e) in h.iter().enumerate() {
             if snake.leading_trail() || i < snake.order() {
-                let col = get_scheme(snake.scheme())
-                    .eval_rational(i, h.len() + if snake.leading_trail() { 0 } else { 1 });
-                let col = egui::Color32::from_rgba_unmultiplied(
-                    col.r,
-                    col.g,
-                    col.b,
-                    (t * 255 / (4 * snake.memory())) as u8,
-                );
+                let col = get_scheme(snake.scheme())(
+                    i,
+                    h.len() + if snake.leading_trail() { 0 } else { 1 },
+                )
+                .gamma_multiply(gamma_mult * t as f32 / (4 * snake.memory()) as f32);
                 ui.painter().circle_filled(
                     trans(e),
                     t as f32 * node_rad / (3 * snake.memory()) as f32,
@@ -392,14 +418,19 @@ fn draw_snake(snake: &Snake, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, un
         }
     }
     for i in 1..snake.derivatives().len() {
+        let col = match snake.team() {
+            1 => egui::Color32::DARK_RED,
+            2 => egui::Color32::DARK_BLUE,
+            _ => egui::Color32::DARK_GRAY,
+        }
+        .gamma_multiply(gamma_mult);
         ui.painter().line_segment(
             [trans(snake.npos(i - 1)), trans(snake.npos(i))],
-            (line_width, egui::Color32::DARK_GRAY),
+            (line_width, col),
         );
     }
     for i in 0..snake.derivatives().len() {
-        let col = get_scheme(snake.scheme()).eval_rational(i, snake.order() + 1);
-        let col = egui::Color32::from_rgb(col.r, col.g, col.b);
+        let col = get_scheme(snake.scheme())(i, snake.order() + 1).gamma_multiply(gamma_mult);
         ui.painter()
             .circle_filled(trans(snake.npos(i)), node_rad, col);
     }
@@ -415,15 +446,41 @@ fn get_col(col: ColSingle) -> egui::Color32 {
         ColSingle::Black => egui::Color32::BLACK,
     }
 }
-fn get_scheme(scheme: ColScheme) -> colorous::Gradient {
-    match scheme {
-        ColScheme::Sinebow => colorous::SINEBOW,
-    }
+fn get_scheme(scheme: ColScheme) -> Box<dyn Fn(usize, usize) -> egui::Color32> {
+    Box::new(match scheme {
+        ColScheme::Sinebow => |i, n| colorous_to_egui(colorous::SINEBOW.eval_rational(i, n)),
+        ColScheme::Reds => {
+            |i, n| colorous_to_egui(colorous::REDS.eval_rational((n - 1 - i) % n, n))
+        }
+        ColScheme::Greens => {
+            |i, n| colorous_to_egui(colorous::GREENS.eval_rational((n - 1 - i) % n, n))
+        }
+        ColScheme::Blues => {
+            |i, n| colorous_to_egui(colorous::BLUES.eval_rational((n - 1 - i) % n, n))
+        }
+        ColScheme::Purples => {
+            |i, n| colorous_to_egui(colorous::PURPLES.eval_rational((n - 1 - i) % n, n))
+        }
+        ColScheme::Spectral => |i, n| colorous_to_egui(colorous::SPECTRAL.eval_rational(i, n)),
+        ColScheme::Cool => |i, n| colorous_to_egui(colorous::COOL.eval_rational(i, n)),
+        ColScheme::Warm => |i, n| colorous_to_egui(colorous::WARM.eval_rational(i, n)),
+    })
+}
+fn colorous_to_egui(col: colorous::Color) -> egui::Color32 {
+    egui::Color32::from_rgb(col.r, col.g, col.b)
 }
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut game_state = self.game_state.lock().unwrap();
+        if game_state.needs_save {
+            eframe::set_value(
+                _frame.storage_mut().expect("No storage"),
+                "Scheme",
+                &game_state.world.snake().scheme(),
+            );
+            game_state.needs_save = false;
+        }
         if game_state.is_exiting() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close)
         }
