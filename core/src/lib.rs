@@ -650,8 +650,8 @@ impl World {
             std::time::Duration::from_secs(5),
             if world_type.is_playfield() {
                 WorldType::MainMenu
-            } else if world_type.is_multiplayer() {
-                WorldType::ArenaMenu
+            } else if world_type.is_arena() {
+                world_type
             } else {
                 world_type
             },

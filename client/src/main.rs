@@ -151,6 +151,7 @@ impl App {
                                         .expect("BAAAAD");
                                     socket.manual_poll(std::time::Instant::now());
                                 }
+                                game_state.world.snake_mut().set_team(0)
                             }
                             game_state.world.to_type(world_type);
                         }
