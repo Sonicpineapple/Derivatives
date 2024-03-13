@@ -1,5 +1,4 @@
-use eframe::egui;
-use egui::{pos2, vec2, Pos2, Vec2};
+use emath::{pos2, vec2, Pos2, Vec2};
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -17,11 +16,11 @@ fn vec_rt(r: f32, t: f32) -> Vec2 {
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
-enum ColScheme {
+pub enum ColScheme {
     Sinebow,
 }
 impl ColScheme {
-    fn gradient(&self) -> colorous::Gradient {
+    pub fn gradient(&self) -> colorous::Gradient {
         match self {
             ColScheme::Sinebow => colorous::SINEBOW,
         }
@@ -52,43 +51,43 @@ impl Snake {
             leading_trail: false,
         }
     }
-    fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
-        let node_rad = unit / 50.;
-        let line_width = unit / 80.;
-        for (t, h) in self.history.iter().enumerate() {
-            for (i, &e) in h.iter().enumerate() {
-                if self.leading_trail || i < self.order {
-                    let col = self
-                        .spectrum
-                        .gradient()
-                        .eval_rational(i, h.len() + if self.leading_trail { 0 } else { 1 });
-                    let col = egui::Color32::from_rgba_unmultiplied(
-                        col.r,
-                        col.g,
-                        col.b,
-                        (t * 255 / (4 * self.memory)) as u8,
-                    );
-                    ui.painter().circle_filled(
-                        trans(e),
-                        t as f32 * node_rad / (3 * self.memory) as f32,
-                        col,
-                    );
-                }
-            }
-        }
-        for i in 1..self.derivatives.len() {
-            ui.painter().line_segment(
-                [trans(self.npos(i - 1)), trans(self.npos(i))],
-                (line_width, egui::Color32::DARK_GRAY),
-            )
-        }
-        for i in 0..self.derivatives.len() {
-            let col = colorous::SINEBOW.eval_rational(i, self.order + 1);
-            let col = egui::Color32::from_rgb(col.r, col.g, col.b);
-            ui.painter()
-                .circle_filled(trans(self.npos(i)), node_rad, col);
-        }
-    }
+    // fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
+    //     let node_rad = unit / 50.;
+    //     let line_width = unit / 80.;
+    //     for (t, h) in self.history.iter().enumerate() {
+    //         for (i, &e) in h.iter().enumerate() {
+    //             if self.leading_trail || i < self.order {
+    //                 let col = self
+    //                     .spectrum
+    //                     .gradient()
+    //                     .eval_rational(i, h.len() + if self.leading_trail { 0 } else { 1 });
+    //                 let col = egui::Color32::from_rgba_unmultiplied(
+    //                     col.r,
+    //                     col.g,
+    //                     col.b,
+    //                     (t * 255 / (4 * self.memory)) as u8,
+    //                 );
+    //                 ui.painter().circle_filled(
+    //                     trans(e),
+    //                     t as f32 * node_rad / (3 * self.memory) as f32,
+    //                     col,
+    //                 );
+    //             }
+    //         }
+    //     }
+    //     for i in 1..self.derivatives.len() {
+    //         ui.painter().line_segment(
+    //             [trans(self.npos(i - 1)), trans(self.npos(i))],
+    //             (line_width, egui::Color32::DARK_GRAY),
+    //         )
+    //     }
+    //     for i in 0..self.derivatives.len() {
+    //         let col = colorous::SINEBOW.eval_rational(i, self.order + 1);
+    //         let col = egui::Color32::from_rgb(col.r, col.g, col.b);
+    //         ui.painter()
+    //             .circle_filled(trans(self.npos(i)), node_rad, col);
+    //     }
+    // }
     fn step(&mut self, dt: f32, friction: f32) {
         self.step_history();
         for i in (1..(self.derivatives.len())).rev() {
@@ -136,6 +135,15 @@ impl Snake {
             self.history.pop_front();
         }
     }
+    pub fn history(&self) -> &VecDeque<Vec<Pos2>> {
+        &self.history
+    }
+    pub fn memory(&self) -> usize {
+        self.memory
+    }
+    pub fn derivatives(&self) -> &Vec<Vec2> {
+        &self.derivatives
+    }
 
     pub fn add(&mut self) {
         self.order += 1;
@@ -173,7 +181,12 @@ impl Snake {
     pub fn toggle_leading_trail(&mut self) {
         self.leading_trail = !self.leading_trail;
     }
-
+    pub fn leading_trail(&self) -> bool {
+        self.leading_trail
+    }
+    pub fn spectrum(&self) -> ColScheme {
+        self.spectrum
+    }
     pub fn reset(&mut self, pos: Pos2) {
         self.derivatives = vec![vec2(0., 0.); self.order + 1];
         self.history = VecDeque::new();
@@ -246,15 +259,15 @@ pub enum SnakeState {
 }
 
 #[derive(Debug, Clone)]
-struct Zone {
+pub struct Zone {
     centre: Pos2,
     radius: f32,
     inverted: bool,
     total: bool,
     persistent: bool,
-    empty_col: egui::Color32,
-    held_col: egui::Color32,
-    set_col: Option<egui::Color32>,
+    empty_col: ZoneCol,
+    held_col: ZoneCol,
+    set_col: Option<ZoneCol>,
     state: ZoneState,
     last_out: std::time::Instant,
     time_req: std::time::Duration,
@@ -269,8 +282,8 @@ impl Zone {
             inverted: false,
             total: true,
             persistent: false,
-            empty_col: egui::Color32::LIGHT_RED,
-            held_col: egui::Color32::LIGHT_GREEN,
+            empty_col: ZoneCol::LightRed,
+            held_col: ZoneCol::LightGreen,
             set_col: None,
             state: ZoneState::Empty,
             last_out: std::time::Instant::now(),
@@ -291,8 +304,8 @@ impl Zone {
             inverted: true,
             total: false,
             persistent: false,
-            empty_col: egui::Color32::DARK_GRAY,
-            held_col: egui::Color32::DARK_RED.gamma_multiply(0.2),
+            empty_col: ZoneCol::DarkGrey,
+            held_col: ZoneCol::DarkRed,
             set_col: None,
             state: ZoneState::Empty,
             last_out: std::time::Instant::now(),
@@ -313,8 +326,8 @@ impl Zone {
             inverted: false,
             total: false,
             persistent: false,
-            empty_col: egui::Color32::DARK_GRAY,
-            held_col: egui::Color32::DARK_RED.gamma_multiply(0.2),
+            empty_col: ZoneCol::DarkGrey,
+            held_col: ZoneCol::DarkRed,
             set_col: None,
             state: ZoneState::Empty,
             last_out: std::time::Instant::now(),
@@ -330,9 +343,9 @@ impl Zone {
             inverted: false,
             total: true,
             persistent: true,
-            empty_col: egui::Color32::LIGHT_BLUE,
-            held_col: egui::Color32::LIGHT_GREEN,
-            set_col: Some(egui::Color32::GOLD),
+            empty_col: ZoneCol::LightBlue,
+            held_col: ZoneCol::LightGreen,
+            set_col: Some(ZoneCol::Gold),
             state: ZoneState::Empty,
             last_out: std::time::Instant::now(),
             time_req: std::time::Duration::from_secs_f32(1.5),
@@ -341,31 +354,51 @@ impl Zone {
         }
     }
 
-    fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
-        let centre = trans(self.centre);
-        let radius = self.radius * unit;
-        let edge_width = unit / 50.;
-        let label_size = unit / 30.;
-        ui.painter().circle_stroke(
-            centre,
-            radius,
-            (
-                edge_width,
-                match self.state {
-                    ZoneState::Empty => self.empty_col,
-                    ZoneState::Held => self.held_col,
-                    ZoneState::Set => self.set_col.expect("No set colour"),
-                },
-            ),
-        );
-        if let Some(label) = &self.label {
-            ui.put(
-                egui::Rect::from_center_size(centre, (2. * (radius - edge_width)) * vec2(1., 1.)),
-                egui::widgets::Label::new(egui::RichText::new(label).size(label_size)),
-            );
-        }
+    // fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
+    //     let centre = trans(self.centre);
+    //     let radius = self.radius * unit;
+    //     let edge_width = unit / 50.;
+    //     let label_size = unit / 30.;
+    //     ui.painter().circle_stroke(
+    //         centre,
+    //         radius,
+    //         (
+    //             edge_width,
+    //             match self.state {
+    //                 ZoneState::Empty => self.empty_col,
+    //                 ZoneState::Held => self.held_col,
+    //                 ZoneState::Set => self.set_col.expect("No set colour"),
+    //             },
+    //         ),
+    //     );
+    //     if let Some(label) = &self.label {
+    //         ui.put(
+    //             egui::Rect::from_center_size(centre, (2. * (radius - edge_width)) * vec2(1., 1.)),
+    //             egui::widgets::Label::new(egui::RichText::new(label).size(label_size)),
+    //         );
+    //     }
+    // }
+    pub fn empty_col(&self) -> ZoneCol {
+        self.empty_col
     }
-
+    pub fn held_col(&self) -> ZoneCol {
+        self.held_col
+    }
+    pub fn set_col(&self) -> Option<ZoneCol> {
+        self.set_col
+    }
+    pub fn state(&self) -> ZoneState {
+        self.state
+    }
+    pub fn label(&self) -> &Option<String> {
+        &self.label
+    }
+    pub fn centre(&self) -> Pos2 {
+        self.centre
+    }
+    pub fn radius(&self) -> f32 {
+        self.radius
+    }
     fn is_complete(&mut self, snake: &Snake) -> Option<Action> {
         // if total and all in the right place, or not total and one in the right place
         if (self.total
@@ -401,17 +434,26 @@ impl Zone {
     }
 }
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum ZoneState {
+pub enum ZoneState {
     Empty,
     Held,
     Set,
 }
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum ZoneCol {
+    LightRed,
+    LightGreen,
+    LightBlue,
+    DarkGrey,
+    DarkRed,
+    Gold,
+}
 
 #[derive(Debug, Clone)]
-struct Hazard {
+pub struct Hazard {
     centre: Pos2,
     radius: f32,
-    col: egui::Color32,
+    col: HazardCol,
     interaction: Interaction,
 }
 impl Hazard {
@@ -419,7 +461,7 @@ impl Hazard {
         Self {
             centre,
             radius,
-            col: egui::Color32::BLACK,
+            col: HazardCol::Black,
             interaction: Interaction::Attract(strength),
         }
     }
@@ -470,11 +512,24 @@ impl Hazard {
         }
     }
 
-    fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
-        let centre = trans(self.centre);
-        let radius = self.radius * unit;
-        ui.painter().circle_filled(centre, radius, self.col);
+    pub fn centre(&self) -> Pos2 {
+        self.centre
     }
+    pub fn radius(&self) -> f32 {
+        self.radius
+    }
+    pub fn col(&self) -> HazardCol {
+        self.col
+    }
+    // fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
+    //     let centre = trans(self.centre);
+    //     let radius = self.radius * unit;
+    //     ui.painter().circle_filled(centre, radius, self.col);
+    // }
+}
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum HazardCol {
+    Black,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -686,6 +741,12 @@ impl World {
     pub fn guests_mut(&mut self) -> &mut HashMap<u8, Snake> {
         &mut self.guests
     }
+    pub fn hazards(&self) -> &Vec<Hazard> {
+        &self.hazards
+    }
+    pub fn zones(&self) -> &Vec<Zone> {
+        &self.zones
+    }
     pub fn time(&self) -> std::time::Duration {
         self.time
     }
@@ -701,18 +762,18 @@ impl World {
         ))
     }
 
-    pub fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
-        for hazard in &self.hazards {
-            hazard.draw(ui, trans, unit)
-        }
-        for zone in &self.zones {
-            zone.draw(ui, trans, unit);
-        }
-        for guest in self.guests().values() {
-            guest.draw(ui, trans, unit);
-        }
-        self.snake.draw(ui, trans, unit);
-    }
+    // pub fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
+    //     for hazard in &self.hazards {
+    //         hazard.draw(ui, trans, unit)
+    //     }
+    //     for zone in &self.zones {
+    //         zone.draw(ui, trans, unit);
+    //     }
+    //     for guest in self.guests().values() {
+    //         guest.draw(ui, trans, unit);
+    //     }
+    //     self.snake.draw(ui, trans, unit);
+    // }
 
     pub fn step(&mut self, dt: f32) {
         self.snake.step(dt, self.friction);

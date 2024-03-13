@@ -5,8 +5,7 @@ edition = "2021"
 
 [dependencies]
 colorous = "1.0.10"
-eframe = "0.21.3"
-egui = {version = "0.21.0", features = ["serde"]}
+emath = {version = "0.26.2", features = ["serde"]}
 itertools = "0.10.5"
 rand = "0.8.5"
 serde = { version = "1.0.197", features = ["derive"] }

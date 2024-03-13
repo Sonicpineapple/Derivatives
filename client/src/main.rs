@@ -5,7 +5,7 @@ use egui::{pos2, vec2, Pos2, Vec2};
 use laminar::{Packet, Socket, SocketEvent};
 use std::sync::{Arc, Mutex};
 
-use derivatives_core::{Action, Message, Snake, World, WorldType};
+use derivatives_core::{Action, HazardCol, Message, Snake, World, WorldType, ZoneCol, ZoneState};
 
 fn main() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions::default();
@@ -261,13 +261,119 @@ fn inv_transform(pos: Pos2, transform: (f32, Vec2)) -> Pos2 {
     ((pos - transform.1).to_vec2() / transform.0).to_pos2()
 }
 
+fn draw_world(world: &World, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
+    for hazard in world.hazards() {
+        draw_hazard(hazard, ui, trans, unit);
+    }
+    for zone in world.zones() {
+        draw_zone(zone, ui, trans, unit);
+    }
+    for guest in world.guests().values() {
+        draw_snake(guest, ui, trans, unit);
+    }
+    draw_snake(world.snake(), ui, trans, unit);
+}
+fn draw_hazard(
+    hazard: &derivatives_core::Hazard,
+    ui: &mut egui::Ui,
+    trans: &dyn Fn(Pos2) -> Pos2,
+    unit: f32,
+) {
+    let centre = trans(hazard.centre());
+    let radius = hazard.radius() * unit;
+    ui.painter()
+        .circle_filled(centre, radius, get_hazard_col(hazard.col()));
+}
+fn draw_zone(
+    zone: &derivatives_core::Zone,
+    ui: &mut egui::Ui,
+    trans: &dyn Fn(Pos2) -> Pos2,
+    unit: f32,
+) {
+    let centre = trans(zone.centre());
+    let radius = zone.radius() * unit;
+    let edge_width = unit / 50.;
+    let label_size = unit / 30.;
+    ui.painter().circle_stroke(
+        centre,
+        radius,
+        (
+            edge_width,
+            match zone.state() {
+                ZoneState::Empty => get_zone_col(zone.empty_col()),
+                ZoneState::Held => get_zone_col(zone.held_col()),
+                ZoneState::Set => get_zone_col(zone.set_col().expect("No set colour")),
+            },
+        ),
+    );
+    if let Some(label) = zone.label() {
+        ui.put(
+            egui::Rect::from_center_size(centre, (2. * (radius - edge_width)) * vec2(1., 1.)),
+            egui::widgets::Label::new(egui::RichText::new(label).size(label_size)),
+        );
+    }
+}
+fn draw_snake(snake: &Snake, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
+    let node_rad = unit / 50.;
+    let line_width = unit / 80.;
+    for (t, h) in snake.history().iter().enumerate() {
+        for (i, &e) in h.iter().enumerate() {
+            if snake.leading_trail() || i < snake.order() {
+                let col = snake
+                    .spectrum()
+                    .gradient()
+                    .eval_rational(i, h.len() + if snake.leading_trail() { 0 } else { 1 });
+                let col = egui::Color32::from_rgba_unmultiplied(
+                    col.r,
+                    col.g,
+                    col.b,
+                    (t * 255 / (4 * snake.memory())) as u8,
+                );
+                ui.painter().circle_filled(
+                    trans(e),
+                    t as f32 * node_rad / (3 * snake.memory()) as f32,
+                    col,
+                );
+            }
+        }
+    }
+    for i in 1..snake.derivatives().len() {
+        ui.painter().line_segment(
+            [trans(snake.npos(i - 1)), trans(snake.npos(i))],
+            (line_width, egui::Color32::DARK_GRAY),
+        );
+    }
+    for i in 0..snake.derivatives().len() {
+        let col = colorous::SINEBOW.eval_rational(i, snake.order() + 1);
+        let col = egui::Color32::from_rgb(col.r, col.g, col.b);
+        ui.painter()
+            .circle_filled(trans(snake.npos(i)), node_rad, col);
+    }
+}
+fn get_zone_col(col: ZoneCol) -> egui::Color32 {
+    match col {
+        ZoneCol::LightRed => egui::Color32::LIGHT_RED,
+        ZoneCol::LightGreen => egui::Color32::LIGHT_GREEN,
+        ZoneCol::LightBlue => egui::Color32::LIGHT_BLUE,
+        ZoneCol::DarkGrey => egui::Color32::DARK_GRAY,
+        ZoneCol::DarkRed => egui::Color32::DARK_RED.gamma_multiply(0.2),
+        ZoneCol::Gold => egui::Color32::GOLD,
+    }
+}
+fn get_hazard_col(col: HazardCol) -> egui::Color32 {
+    match col {
+        HazardCol::Black => egui::Color32::BLACK,
+    }
+}
+
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut game_state = self.game_state.lock().unwrap();
         if game_state.is_exiting() {
-            _frame.close();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close)
         }
         egui::CentralPanel::default().show(ctx, |ui| {
+            ui.style_mut().interaction.selectable_labels = false;
             let rect = ui.available_rect_before_wrap();
             let (cen, size) = (rect.center(), rect.size());
             let unit = size.min_elem() / 2.;
@@ -309,7 +415,7 @@ impl eframe::App for App {
                         .size(unit * 2. / 7.),
                 ),
             );
-            game_state.world.draw(ui, &trans, unit);
+            draw_world(&game_state.world, ui, &trans, unit);
         });
         ctx.request_repaint();
     }
