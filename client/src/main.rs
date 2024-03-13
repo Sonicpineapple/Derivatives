@@ -5,7 +5,7 @@ use egui::{pos2, vec2, Pos2, Vec2};
 use laminar::{Packet, Socket, SocketEvent};
 use std::sync::{Arc, Mutex};
 
-use derivatives_core::{Action, HazardCol, Message, Snake, World, WorldType, ZoneCol, ZoneState};
+use derivatives_core::{Action, ColScheme, ColSingle, Message, Snake, World, WorldType, ZoneState};
 
 fn main() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions::default();
@@ -282,7 +282,7 @@ fn draw_hazard(
     let centre = trans(hazard.centre());
     let radius = hazard.radius() * unit;
     ui.painter()
-        .circle_filled(centre, radius, get_hazard_col(hazard.col()));
+        .circle_filled(centre, radius, get_col(hazard.col()));
 }
 fn draw_zone(
     zone: &derivatives_core::Zone,
@@ -294,15 +294,26 @@ fn draw_zone(
     let radius = zone.radius() * unit;
     let edge_width = unit / 50.;
     let label_size = unit / 30.;
+    if zone.progress() > 0. {
+        let col = get_col(zone.current_col()).gamma_multiply(0.2);
+        if zone.inverted() {
+            let edge_width = radius * zone.progress();
+            ui.painter()
+                .circle_stroke(centre, radius - edge_width / 2., (edge_width, col));
+        } else {
+            ui.painter()
+                .circle_filled(centre, (radius - edge_width / 2.) * zone.progress(), col);
+        }
+    }
     ui.painter().circle_stroke(
         centre,
         radius,
         (
             edge_width,
             match zone.state() {
-                ZoneState::Empty => get_zone_col(zone.empty_col()),
-                ZoneState::Held => get_zone_col(zone.held_col()),
-                ZoneState::Set => get_zone_col(zone.set_col().expect("No set colour")),
+                ZoneState::Empty => get_col(zone.empty_col()),
+                ZoneState::Held => get_col(zone.held_col()),
+                ZoneState::Set => get_col(zone.set_col().expect("No set colour")),
             },
         ),
     );
@@ -319,9 +330,7 @@ fn draw_snake(snake: &Snake, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, un
     for (t, h) in snake.history().iter().enumerate() {
         for (i, &e) in h.iter().enumerate() {
             if snake.leading_trail() || i < snake.order() {
-                let col = snake
-                    .spectrum()
-                    .gradient()
+                let col = get_scheme(snake.scheme())
                     .eval_rational(i, h.len() + if snake.leading_trail() { 0 } else { 1 });
                 let col = egui::Color32::from_rgba_unmultiplied(
                     col.r,
@@ -344,25 +353,26 @@ fn draw_snake(snake: &Snake, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, un
         );
     }
     for i in 0..snake.derivatives().len() {
-        let col = colorous::SINEBOW.eval_rational(i, snake.order() + 1);
+        let col = get_scheme(snake.scheme()).eval_rational(i, snake.order() + 1);
         let col = egui::Color32::from_rgb(col.r, col.g, col.b);
         ui.painter()
             .circle_filled(trans(snake.npos(i)), node_rad, col);
     }
 }
-fn get_zone_col(col: ZoneCol) -> egui::Color32 {
+fn get_col(col: ColSingle) -> egui::Color32 {
     match col {
-        ZoneCol::LightRed => egui::Color32::LIGHT_RED,
-        ZoneCol::LightGreen => egui::Color32::LIGHT_GREEN,
-        ZoneCol::LightBlue => egui::Color32::LIGHT_BLUE,
-        ZoneCol::DarkGrey => egui::Color32::DARK_GRAY,
-        ZoneCol::DarkRed => egui::Color32::DARK_RED.gamma_multiply(0.2),
-        ZoneCol::Gold => egui::Color32::GOLD,
+        ColSingle::LightRed => egui::Color32::LIGHT_RED,
+        ColSingle::LightGreen => egui::Color32::LIGHT_GREEN,
+        ColSingle::LightBlue => egui::Color32::LIGHT_BLUE,
+        ColSingle::DarkGrey => egui::Color32::DARK_GRAY,
+        ColSingle::DarkRed => egui::Color32::DARK_RED.gamma_multiply(1.),
+        ColSingle::Gold => egui::Color32::GOLD,
+        ColSingle::Black => egui::Color32::BLACK,
     }
 }
-fn get_hazard_col(col: HazardCol) -> egui::Color32 {
-    match col {
-        HazardCol::Black => egui::Color32::BLACK,
+fn get_scheme(scheme: ColScheme) -> colorous::Gradient {
+    match scheme {
+        ColScheme::Sinebow => colorous::SINEBOW,
     }
 }
 

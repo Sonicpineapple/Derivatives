@@ -19,12 +19,15 @@ fn vec_rt(r: f32, t: f32) -> Vec2 {
 pub enum ColScheme {
     Sinebow,
 }
-impl ColScheme {
-    pub fn gradient(&self) -> colorous::Gradient {
-        match self {
-            ColScheme::Sinebow => colorous::SINEBOW,
-        }
-    }
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum ColSingle {
+    LightRed,
+    LightGreen,
+    LightBlue,
+    DarkGrey,
+    DarkRed,
+    Gold,
+    Black,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,7 +38,7 @@ pub struct Snake {
     state: SnakeState,
     memory: usize,
     history: VecDeque<Vec<Pos2>>,
-    spectrum: ColScheme,
+    scheme: ColScheme,
     leading_trail: bool,
 }
 impl Snake {
@@ -47,7 +50,7 @@ impl Snake {
             state: SnakeState::Anchored(pos2(0., 0.)),
             memory: 100, //reset to 200
             history: VecDeque::new(),
-            spectrum: ColScheme::Sinebow,
+            scheme: ColScheme::Sinebow,
             leading_trail: false,
         }
     }
@@ -184,8 +187,8 @@ impl Snake {
     pub fn leading_trail(&self) -> bool {
         self.leading_trail
     }
-    pub fn spectrum(&self) -> ColScheme {
-        self.spectrum
+    pub fn scheme(&self) -> ColScheme {
+        self.scheme
     }
     pub fn reset(&mut self, pos: Pos2) {
         self.derivatives = vec![vec2(0., 0.); self.order + 1];
@@ -236,7 +239,7 @@ impl Snake {
             order: self.order,
             derivatives: self.derivatives.clone(),
             state: self.state,
-            spectrum: self.spectrum,
+            spectrum: self.scheme,
             leading_trail: self.leading_trail,
         }
     }
@@ -247,7 +250,7 @@ impl Snake {
         self.set_order(data.order);
         self.derivatives = data.derivatives;
         self.state = data.state;
-        self.spectrum = data.spectrum;
+        self.scheme = data.spectrum;
     }
 }
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -265,12 +268,13 @@ pub struct Zone {
     inverted: bool,
     total: bool,
     persistent: bool,
-    empty_col: ZoneCol,
-    held_col: ZoneCol,
-    set_col: Option<ZoneCol>,
+    empty_col: ColSingle,
+    held_col: ColSingle,
+    set_col: Option<ColSingle>,
     state: ZoneState,
     last_out: std::time::Instant,
     time_req: std::time::Duration,
+    progress: f32,
     action: Action,
     label: Option<String>,
 }
@@ -282,12 +286,13 @@ impl Zone {
             inverted: false,
             total: true,
             persistent: false,
-            empty_col: ZoneCol::LightRed,
-            held_col: ZoneCol::LightGreen,
+            empty_col: ColSingle::LightRed,
+            held_col: ColSingle::LightGreen,
             set_col: None,
             state: ZoneState::Empty,
             last_out: std::time::Instant::now(),
             time_req,
+            progress: 0.,
             action: Action::Point,
             label: None,
         }
@@ -304,12 +309,13 @@ impl Zone {
             inverted: true,
             total: false,
             persistent: false,
-            empty_col: ZoneCol::DarkGrey,
-            held_col: ZoneCol::DarkRed,
+            empty_col: ColSingle::DarkGrey,
+            held_col: ColSingle::DarkRed,
             set_col: None,
             state: ZoneState::Empty,
             last_out: std::time::Instant::now(),
             time_req,
+            progress: 0.,
             action: Action::Reset(world_type),
             label: None,
         }
@@ -326,12 +332,13 @@ impl Zone {
             inverted: false,
             total: false,
             persistent: false,
-            empty_col: ZoneCol::DarkGrey,
-            held_col: ZoneCol::DarkRed,
+            empty_col: ColSingle::DarkGrey,
+            held_col: ColSingle::DarkRed,
             set_col: None,
             state: ZoneState::Empty,
             last_out: std::time::Instant::now(),
             time_req,
+            progress: 0.,
             action: Action::Reset(world_type),
             label: None,
         }
@@ -343,17 +350,40 @@ impl Zone {
             inverted: false,
             total: true,
             persistent: true,
-            empty_col: ZoneCol::LightBlue,
-            held_col: ZoneCol::LightGreen,
-            set_col: Some(ZoneCol::Gold),
+            empty_col: ColSingle::LightBlue,
+            held_col: ColSingle::LightGreen,
+            set_col: Some(ColSingle::Gold),
             state: ZoneState::Empty,
             last_out: std::time::Instant::now(),
             time_req: std::time::Duration::from_secs_f32(1.5),
+            progress: 0.,
             action,
             label: Some(label),
         }
     }
 
+    fn step(&mut self, dt: f32) {
+        match self.state {
+            ZoneState::Empty => {
+                if self.progress >= 1. {
+                    self.progress = 0.
+                } else {
+                    self.progress =
+                        f32::max(0., self.progress - 8. * dt / self.time_req.as_secs_f32())
+                }
+            }
+            ZoneState::Held => self.progress += dt / self.time_req.as_secs_f32(),
+            ZoneState::Set => {}
+        }
+    }
+
+    pub fn current_col(&self) -> ColSingle {
+        match self.state {
+            ZoneState::Empty => self.empty_col,
+            ZoneState::Held => self.held_col,
+            ZoneState::Set => self.set_col.expect("No held col"),
+        }
+    }
     // fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
     //     let centre = trans(self.centre);
     //     let radius = self.radius * unit;
@@ -378,13 +408,13 @@ impl Zone {
     //         );
     //     }
     // }
-    pub fn empty_col(&self) -> ZoneCol {
+    pub fn empty_col(&self) -> ColSingle {
         self.empty_col
     }
-    pub fn held_col(&self) -> ZoneCol {
+    pub fn held_col(&self) -> ColSingle {
         self.held_col
     }
-    pub fn set_col(&self) -> Option<ZoneCol> {
+    pub fn set_col(&self) -> Option<ColSingle> {
         self.set_col
     }
     pub fn state(&self) -> ZoneState {
@@ -399,6 +429,19 @@ impl Zone {
     pub fn radius(&self) -> f32 {
         self.radius
     }
+    // pub fn progress(&self) -> f32 {
+    //     std::time::Instant::now()
+    //         .duration_since(self.last_out)
+    //         .as_secs_f32()
+    //         / self.time_req.as_secs_f32()
+    // }
+    pub fn progress(&self) -> f32 {
+        self.progress
+    }
+    pub fn inverted(&self) -> bool {
+        self.inverted
+    }
+
     fn is_complete(&mut self, snake: &Snake) -> Option<Action> {
         // if total and all in the right place, or not total and one in the right place
         if (self.total
@@ -410,7 +453,8 @@ impl Zone {
                 }))
         {
             if self.state != ZoneState::Set {
-                if std::time::Instant::now().duration_since(self.last_out) > self.time_req {
+                // if std::time::Instant::now().duration_since(self.last_out) > self.time_req {
+                if self.progress() > 1. {
                     self.state = ZoneState::Set;
                     return Some(self.action);
                 } else {
@@ -432,6 +476,9 @@ impl Zone {
     fn is_empty(&self) -> bool {
         self.state == ZoneState::Empty
     }
+    fn is_held(&self) -> bool {
+        self.state == ZoneState::Held
+    }
 }
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ZoneState {
@@ -439,21 +486,12 @@ pub enum ZoneState {
     Held,
     Set,
 }
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum ZoneCol {
-    LightRed,
-    LightGreen,
-    LightBlue,
-    DarkGrey,
-    DarkRed,
-    Gold,
-}
 
 #[derive(Debug, Clone)]
 pub struct Hazard {
     centre: Pos2,
     radius: f32,
-    col: HazardCol,
+    col: ColSingle,
     interaction: Interaction,
 }
 impl Hazard {
@@ -461,7 +499,7 @@ impl Hazard {
         Self {
             centre,
             radius,
-            col: HazardCol::Black,
+            col: ColSingle::Black,
             interaction: Interaction::Attract(strength),
         }
     }
@@ -518,20 +556,10 @@ impl Hazard {
     pub fn radius(&self) -> f32 {
         self.radius
     }
-    pub fn col(&self) -> HazardCol {
+    pub fn col(&self) -> ColSingle {
         self.col
     }
-    // fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
-    //     let centre = trans(self.centre);
-    //     let radius = self.radius * unit;
-    //     ui.painter().circle_filled(centre, radius, self.col);
-    // }
 }
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum HazardCol {
-    Black,
-}
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum Interaction {
     Attract(f32),
@@ -762,23 +790,13 @@ impl World {
         ))
     }
 
-    // pub fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
-    //     for hazard in &self.hazards {
-    //         hazard.draw(ui, trans, unit)
-    //     }
-    //     for zone in &self.zones {
-    //         zone.draw(ui, trans, unit);
-    //     }
-    //     for guest in self.guests().values() {
-    //         guest.draw(ui, trans, unit);
-    //     }
-    //     self.snake.draw(ui, trans, unit);
-    // }
-
     pub fn step(&mut self, dt: f32) {
         self.snake.step(dt, self.friction);
         for hazard in &self.hazards {
             hazard.interact(&mut self.snake, dt);
+        }
+        for zone in &mut self.zones {
+            zone.step(dt);
         }
         if !self.world_type.is_timed()
             || self

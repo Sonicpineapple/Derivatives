@@ -883,7 +883,6 @@ dependencies = [
 name = "derivatives_core"
 version = "0.1.0"
 dependencies = [
- "colorous",
  "emath",
  "itertools",
  "rand",

@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-colorous = "1.0.10"
 emath = {version = "0.26.2", features = ["serde"]}
 itertools = "0.10.5"
 rand = "0.8.5"
