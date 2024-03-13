@@ -791,7 +791,7 @@ impl World {
                 pos = pos_rt(0., 0.);
             }
             WorldType::Arena => {
-                order = 3;
+                order = 4;
                 pos = match self.snake.team {
                     1 => pos_rt(unit, PI * 3. / 2.),
                     2 => pos_rt(unit, PI / 2.),

@@ -33,13 +33,15 @@ impl App {
         std::thread::spawn(move || {
             //for localhost
             const SERVER: &str = "127.0.0.1:12345";
-            //for localhost
+
+            //for webhost
             // const SERVER: &str = "Your.Server.Ip.Here:12345";
 
             //for localhost
             let addr = "127.0.0.1:11111";
             //for webhost
             // let addr = "0.0.0.0:11111";
+
             let server = SERVER.parse().unwrap();
             let mut socket: Option<Socket> = None;
 

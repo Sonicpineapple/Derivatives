@@ -4,8 +4,10 @@ use std::{collections::HashMap, net::SocketAddr, thread};
 
 use derivatives_core::Message;
 
-const SERVER: &str = "127.0.0.1:12345"; // for localhost
-                                        // const SERVER: &str = "0.0.0.0:12345"; // for webhost
+// for localhost
+const SERVER: &str = "127.0.0.1:12345";
+// for webhost
+// const SERVER: &str = "0.0.0.0:12345";
 
 fn server() -> Result<(), ErrorKind> {
     let mut socket = Socket::bind(SERVER)?;
