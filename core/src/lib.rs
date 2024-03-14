@@ -79,80 +79,6 @@ impl Snake {
             leading_trail: false,
         }
     }
-    // fn draw(&self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
-    //     let node_rad = unit / 50.;
-    //     let line_width = unit / 80.;
-    //     for (t, h) in self.history.iter().enumerate() {
-    //         for (i, &e) in h.iter().enumerate() {
-    //             if self.leading_trail || i < self.order {
-    //                 let col = self
-    //                     .spectrum
-    //                     .gradient()
-    //                     .eval_rational(i, h.len() + if self.leading_trail { 0 } else { 1 });
-    //                 let col = egui::Color32::from_rgba_unmultiplied(
-    //                     col.r,
-    //                     col.g,
-    //                     col.b,
-    //                     (t * 255 / (4 * self.memory)) as u8,
-    //                 );
-    //                 ui.painter().circle_filled(
-    //                     trans(e),
-    //                     t as f32 * node_rad / (3 * self.memory) as f32,
-    //                     col,
-    //                 );
-    //             }
-    //         }
-    //     }
-    //     for i in 1..self.derivatives.len() {
-    //         ui.painter().line_segment(
-    //             [trans(self.npos(i - 1)), trans(self.npos(i))],
-    //             (line_width, egui::Color32::DARK_GRAY),
-    //         )
-    //     }
-    //     for i in 0..self.derivatives.len() {
-    //         let col = colorous::SINEBOW.eval_rational(i, self.order + 1);
-    //         let col = egui::Color32::from_rgb(col.r, col.g, col.b);
-    //         ui.painter()
-    //             .circle_filled(trans(self.npos(i)), node_rad, col);
-    //     }
-    // }
-    fn step(&mut self, dt: f32, friction: f32) {
-        self.step_history();
-        for i in (1..(self.derivatives.len())).rev() {
-            let temp = self.derivatives[i];
-            self.derivatives[i - 1] += temp * dt;
-        }
-        for i in &mut self.derivatives[1..] {
-            *i *= 1. - friction;
-        }
-        match self.state {
-            SnakeState::Following(target) => {
-                *self.derivatives.last_mut().unwrap() = target
-                    - if self.order > 0 {
-                        self.npos(self.order - 1)
-                    } else {
-                        pos2(0., 0.)
-                    };
-            }
-            SnakeState::Linked(index) => {
-                *self.derivatives.last_mut().unwrap() = self.npos(index)
-                    - if self.order > 0 {
-                        self.npos(self.order - 1)
-                    } else {
-                        self.npos(0)
-                    };
-            }
-            SnakeState::Anchored(anchor) => {
-                *self.derivatives.last_mut().unwrap() = anchor
-                    - if self.order > 0 {
-                        self.npos(self.order - 1)
-                    } else {
-                        pos2(0., 0.)
-                    };
-            }
-            SnakeState::Drifting => todo!(),
-        }
-    }
     fn step_history(&mut self) {
         self.history.push_back(
             (0..(self.order + if self.leading_trail { 1 } else { 0 }))
@@ -250,15 +176,6 @@ impl Snake {
                 pos2(0., 0.)
             };
     }
-    pub fn link(&mut self, target: usize) {
-        self.state = SnakeState::Linked(target);
-        *self.derivatives.last_mut().unwrap() = self.npos(target)
-            - if self.order > 0 {
-                self.npos(self.order - 1)
-            } else {
-                pos2(0., 0.)
-            };
-    }
     pub fn anchor(&mut self) {
         self.state = SnakeState::Anchored(self.npos(self.order));
     }
@@ -299,9 +216,14 @@ impl Snake {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SnakeState {
     Following(Pos2),
-    Linked(usize),
+    Linked(LinkType),
     Anchored(Pos2),
     Drifting,
+}
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LinkType {
+    ToSelf(usize),
+    ToOther(u8, usize),
 }
 
 #[derive(Debug, Clone)]
@@ -547,11 +469,14 @@ impl Interaction {
                             snake.derivatives[0] += dir * strength * dt * dt / dist;
                             snake.anchor()
                         }
-                        SnakeState::Linked(i) => {
-                            if i == 0 {
-                                snake.derivatives[0] += dir * strength * dt * dt / dist;
+                        SnakeState::Linked(link_type) => match link_type {
+                            LinkType::ToSelf(i) => {
+                                if i == 0 {
+                                    snake.derivatives[0] += dir * strength * dt * dt / dist;
+                                }
                             }
-                        }
+                            LinkType::ToOther(_, _) => todo!(),
+                        },
                         _ => {}
                     },
                     1 => match snake.state {
@@ -559,11 +484,12 @@ impl Interaction {
                             snake.derivatives[1] += dir * strength * dt / dist;
                             snake.anchor()
                         }
-                        SnakeState::Linked(i) => {
-                            if i == 1 {
+                        SnakeState::Linked(link_type) => match link_type {
+                            LinkType::ToSelf(i) => {
                                 snake.derivatives[1] += dir * strength * dt / dist;
                             }
-                        }
+                            LinkType::ToOther(_, _) => todo!(),
+                        },
                         _ => {}
                     },
                     2 => match snake.state {
@@ -819,6 +745,20 @@ impl World {
     pub fn guests_mut(&mut self) -> &mut HashMap<u8, Snake> {
         &mut self.guests
     }
+    pub fn snake_by_id(&self, id: u8) -> &Snake {
+        if self.snake.id == id {
+            &self.snake
+        } else {
+            &self.guests.get(&id).expect("No such snake")
+        }
+    }
+    pub fn snake_mut_by_id(&mut self, id: u8) -> &mut Snake {
+        if self.snake.id == id {
+            &mut self.snake
+        } else {
+            self.guests.get_mut(&id).expect("No such snake")
+        }
+    }
     pub fn hazards(&self) -> &Vec<Hazard> {
         &self.hazards
     }
@@ -841,7 +781,7 @@ impl World {
     }
 
     pub fn step(&mut self, dt: f32) {
-        self.snake.step(dt, self.friction);
+        self.step_snake(dt);
         for hazard in &self.hazards {
             hazard.interact(&mut self.snake, dt);
         }
@@ -864,6 +804,80 @@ impl World {
         {
             self.time += std::time::Duration::from_secs_f32(dt);
         }
+    }
+    fn step_snake(&mut self, dt: f32) {
+        let friction = self.friction;
+        let snake = self.snake_mut();
+        snake.step_history();
+        for i in (1..(snake.derivatives.len())).rev() {
+            let temp = snake.derivatives[i];
+            snake.derivatives[i - 1] += temp * dt;
+        }
+        for i in &mut snake.derivatives[1..] {
+            *i *= 1. - friction;
+        }
+        match snake.state {
+            SnakeState::Following(target) => {
+                *snake.derivatives.last_mut().unwrap() = target
+                    - if snake.order > 0 {
+                        snake.npos(snake.order - 1)
+                    } else {
+                        pos2(0., 0.)
+                    };
+            }
+            SnakeState::Linked(link_type) => match link_type {
+                LinkType::ToSelf(i) => {
+                    *snake.derivatives.last_mut().unwrap() = snake.npos(i)
+                        - if snake.order > 0 {
+                            snake.npos(snake.order - 1)
+                        } else {
+                            snake.npos(0)
+                        };
+                }
+                LinkType::ToOther(id, i) => {
+                    let target_snake = self.snake_by_id(id);
+                    let target_pos = target_snake.npos(i);
+                    let snake = self.snake_mut();
+                    *snake.derivatives.last_mut().unwrap() = target_pos
+                        - if snake.order > 0 {
+                            snake.npos(snake.order - 1)
+                        } else {
+                            snake.npos(0)
+                        };
+                }
+            },
+            SnakeState::Anchored(anchor) => {
+                *snake.derivatives.last_mut().unwrap() = anchor
+                    - if snake.order > 0 {
+                        snake.npos(snake.order - 1)
+                    } else {
+                        pos2(0., 0.)
+                    };
+            }
+            SnakeState::Drifting => todo!(),
+        }
+    }
+    pub fn link_snake(&mut self, target: usize) {
+        let snake = self.snake_mut();
+        snake.state = SnakeState::Linked(LinkType::ToSelf(target));
+        *snake.derivatives.last_mut().unwrap() = snake.npos(target)
+            - if snake.order > 0 {
+                snake.npos(snake.order - 1)
+            } else {
+                pos2(0., 0.)
+            };
+    }
+    pub fn link_snake_other(&mut self, id: u8, target: usize) {
+        let target_snake = self.snake_by_id(id);
+        let target_vec = target_snake.npos(target)
+            - if target_snake.order > 0 {
+                target_snake.npos(target_snake.order - 1)
+            } else {
+                pos2(0., 0.)
+            };
+        let snake = self.snake_mut();
+        snake.state = SnakeState::Linked(LinkType::ToOther(id, target));
+        *snake.derivatives.last_mut().unwrap() = target_vec;
     }
     pub fn check(&mut self) -> Vec<Action> {
         let mut actions = vec![];

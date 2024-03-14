@@ -5,7 +5,9 @@ use egui::{pos2, vec2, Pos2, Vec2};
 use laminar::{Packet, Socket, SocketEvent};
 use std::sync::{Arc, Mutex};
 
-use derivatives_core::{Action, ColScheme, ColSingle, Message, Snake, World, WorldType, ZoneState};
+use derivatives_core::{
+    Action, ColScheme, ColSingle, LinkType, Message, Snake, World, WorldType, ZoneState,
+};
 
 fn main() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions::default();
@@ -295,14 +297,29 @@ impl GameState {
         self.world.snake_mut().follow(mpos);
     }
     fn link_snake(&mut self, mpos: Pos2) {
-        let target = (0..self.world.snake().order() + 1)
-            .min_by(|&a, &b| {
-                (mpos - self.world.snake().npos(a))
-                    .length_sq()
-                    .total_cmp(&(mpos - self.world.snake().npos(b)).length_sq())
+        let (target_id, target_index, _) = self
+            .world
+            .guests()
+            .iter()
+            .chain([(&self.world.snake().id(), self.world.snake())])
+            .map(|(&id, snake)| {
+                (0..snake.order() + 1).map(move |a| (id, a, (mpos - snake.npos(a)).length_sq()))
             })
+            .flatten()
+            .min_by(|(_, _, a), (_, _, b)| a.total_cmp(b))
             .expect("No closest point");
-        self.world.snake_mut().link(target);
+        // let target = (0..self.world.snake().order() + 1)
+        //     .min_by(|&a, &b| {
+        //         (mpos - self.world.snake().npos(a))
+        //             .length_sq()
+        //             .total_cmp(&(mpos - self.world.snake().npos(b)).length_sq())
+        //     })
+        //     .expect("No closest point");
+        if target_id == self.world.snake().id() {
+            self.world.link_snake(target_index);
+        } else {
+            self.world.link_snake_other(target_id, target_index);
+        }
     }
     fn anchor_snake(&mut self) {
         self.world.snake_mut().anchor();
