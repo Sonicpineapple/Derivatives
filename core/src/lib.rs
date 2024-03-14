@@ -292,45 +292,8 @@ impl Snake {
         self.scheme = data.spectrum;
     }
     fn interact(&mut self, other: &Snake, dt: f32) {
-        let dir = other.derivatives[0].to_pos2() - self.derivatives[0].to_pos2();
-        let dist = (0.001 as f32).max(dir.length_sq());
-        let dir = dir.normalized();
-        match self.order {
-            0 => match self.state {
-                SnakeState::Anchored(_) => {
-                    self.derivatives[0] += dir * 0.01 * dt * dt / dist;
-                    self.anchor()
-                }
-                SnakeState::Linked(i) => {
-                    if i == 0 {
-                        self.derivatives[0] += dir * 0.01 * dt * dt / dist;
-                    }
-                }
-                _ => {}
-            },
-            1 => match self.state {
-                SnakeState::Anchored(_) => {
-                    self.derivatives[1] += dir * 0.01 * dt / dist;
-                    self.anchor()
-                }
-                SnakeState::Linked(i) => {
-                    if i == 1 {
-                        self.derivatives[1] += dir * 0.01 * dt / dist;
-                    }
-                }
-                _ => {}
-            },
-            2 => match self.state {
-                SnakeState::Anchored(_) => {
-                    self.derivatives[2] += dir * 0.01 * dt / dist;
-                    self.anchor()
-                }
-                _ => {}
-            },
-            _ => {
-                self.derivatives[2] += dir * 0.01 * dt / dist;
-            }
-        };
+        let strength = 0.02;
+        Interaction::Attract(strength).interact(other.derivatives[0].to_pos2(), self, dt);
     }
 }
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -554,10 +517,29 @@ impl Hazard {
     }
 
     fn interact(&self, snake: &mut Snake, dt: f32) {
-        match self.interaction {
+        self.interaction.interact(self.centre, snake, dt);
+    }
+
+    pub fn centre(&self) -> Pos2 {
+        self.centre
+    }
+    pub fn radius(&self) -> f32 {
+        self.radius
+    }
+    pub fn col(&self) -> ColSingle {
+        self.col
+    }
+}
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum Interaction {
+    Attract(f32),
+}
+impl Interaction {
+    fn interact(&self, centre: Pos2, snake: &mut Snake, dt: f32) {
+        match *self {
             Interaction::Attract(strength) => {
-                let dir = self.centre - snake.derivatives[0].to_pos2();
-                let dist = (0.001 as f32).max(dir.length_sq());
+                let dir = centre - snake.derivatives[0].to_pos2();
+                let dist = (0.01 as f32).max(dir.length_sq());
                 let dir = dir.normalized();
                 match snake.order {
                     0 => match snake.state {
@@ -598,20 +580,6 @@ impl Hazard {
             }
         }
     }
-
-    pub fn centre(&self) -> Pos2 {
-        self.centre
-    }
-    pub fn radius(&self) -> f32 {
-        self.radius
-    }
-    pub fn col(&self) -> ColSingle {
-        self.col
-    }
-}
-#[derive(Debug, Copy, Clone, PartialEq)]
-enum Interaction {
-    Attract(f32),
 }
 
 #[derive(Debug, Clone)]
@@ -679,7 +647,7 @@ impl World {
                     std::time::Duration::from_secs(5),
                     WorldType::MainMenu,
                 )];
-                hazards = vec![Hazard::new_attractor(pos2(0., 0.), zone_rad / 3., 0.01)];
+                hazards = vec![Hazard::new_attractor(pos2(0., 0.), zone_rad / 3., 0.02)];
                 order = 2;
                 pos = pos2(0., 0.25);
             }
