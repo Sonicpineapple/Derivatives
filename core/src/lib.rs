@@ -117,7 +117,7 @@ impl Snake {
             self.derivatives.pop();
         }
     }
-    fn set_order(&mut self, order: usize) {
+    pub fn set_order(&mut self, order: usize) {
         while self.order > order {
             self.remove();
         }
@@ -461,7 +461,7 @@ impl Interaction {
         match *self {
             Interaction::Attract(strength) => {
                 let dir = centre - snake.derivatives[0].to_pos2();
-                let dist = (0.01 as f32).max(dir.length_sq());
+                let dist = (0.008 as f32).max(dir.length_sq());
                 let dir = dir.normalized();
                 match snake.order {
                     0 => match snake.state {
@@ -714,7 +714,10 @@ impl World {
                 pos = pos_rt(0., 0.);
             }
             WorldType::Arena => {
-                order = 4;
+                order = match self.snake.team {
+                    0 => 2,
+                    _ => 4,
+                };
                 pos = match self.snake.team {
                     1 => pos_rt(unit, PI * 3. / 2.),
                     2 => pos_rt(unit, PI / 2.),

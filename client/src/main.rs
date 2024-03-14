@@ -155,7 +155,7 @@ impl App {
                                         .expect("BAAAAD");
                                     socket.manual_poll(std::time::Instant::now());
                                 }
-                                game_state.world.snake_mut().set_team(0)
+                                game_state.world.snake_mut().set_team(0);
                             }
                             game_state.world.to_type(world_type);
                         }
@@ -356,7 +356,7 @@ fn draw_world(world: &World, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, un
         draw_snake(guest, ui, trans, unit, gamma_mult);
     }
     let gamma_mult = if world.world_type().is_arena() && world.snake().team() == 0 {
-        0.75
+        0.25
     } else {
         1.
     };
