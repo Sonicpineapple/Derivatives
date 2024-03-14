@@ -22,6 +22,7 @@ pub enum ColScheme {
     Greens,
     Blues,
     Purples,
+    Grays,
     Spectral,
     Cool,
     Warm,
@@ -33,7 +34,8 @@ impl ColScheme {
             ColScheme::Reds => ColScheme::Greens,
             ColScheme::Greens => ColScheme::Blues,
             ColScheme::Blues => ColScheme::Purples,
-            ColScheme::Purples => ColScheme::Spectral,
+            ColScheme::Purples => ColScheme::Grays,
+            ColScheme::Grays => ColScheme::Spectral,
             ColScheme::Spectral => ColScheme::Cool,
             ColScheme::Cool => ColScheme::Warm,
             ColScheme::Warm => ColScheme::Sinebow,
@@ -759,7 +761,7 @@ impl World {
                         pos_rt(unit, PI * 1. / 3.),
                         zone_rad,
                         Action::JoinMultiplayer,
-                        "Mutliplayer".to_string(),
+                        "Multiplayer".to_string(),
                     ),
                 ];
             }
@@ -993,7 +995,7 @@ pub enum Message {
     Leave(u8),
     RegisterTeam(u8),
     StartArena,
-    EndArena,
+    EndArena(u8),
 }
 impl Message {
     pub fn ser(&self) -> Vec<u8> {

@@ -33,6 +33,7 @@ impl App {
             score: 0,
             exiting: false,
             needs_save: false,
+            last_winner: None,
         }));
 
         let game_state_ref = Arc::clone(&game_state);
@@ -105,7 +106,8 @@ impl App {
                                                 Message::StartArena => {
                                                     game_state.world.to_type(WorldType::Arena)
                                                 }
-                                                Message::EndArena => {
+                                                Message::EndArena(u8) => {
+                                                    game_state.last_winner = Some(u8);
                                                     game_state.world.to_type(WorldType::ArenaMenu)
                                                 }
                                                 _ => todo!(),
@@ -286,6 +288,7 @@ struct GameState {
     score: usize,
     exiting: bool,
     needs_save: bool,
+    last_winner: Option<u8>,
 }
 impl GameState {
     fn set_snake_follow_target(&mut self, mpos: Pos2) {
@@ -462,6 +465,9 @@ fn get_scheme(scheme: ColScheme) -> Box<dyn Fn(usize, usize) -> egui::Color32> {
         ColScheme::Purples => {
             |i, n| colorous_to_egui(colorous::PURPLES.eval_rational((n - 1 - i) % n, n))
         }
+        ColScheme::Grays => {
+            |i, n| colorous_to_egui(colorous::GREYS.eval_rational((n - 1 - i) % n, n))
+        }
         ColScheme::Spectral => |i, n| colorous_to_egui(colorous::SPECTRAL.eval_rational(i, n)),
         ColScheme::Cool => |i, n| colorous_to_egui(colorous::COOL.eval_rational(i, n)),
         ColScheme::Warm => |i, n| colorous_to_egui(colorous::WARM.eval_rational(i, n)),
@@ -519,6 +525,26 @@ impl eframe::App for App {
                             .size(unit * 1. / 2.),
                     ),
                 );
+            }
+            if game_state.world.world_type() == WorldType::ArenaMenu {
+                if let Some(team_id) = game_state.last_winner {
+                    ui.put(
+                        egui::Rect::from_center_size(trans(pos2(0., -0.5)), vec2(1., 1.) * (unit)),
+                        egui::widgets::Label::new(
+                            egui::RichText::new(if team_id == 0 {
+                                "Draw".to_string()
+                            } else {
+                                "Win".to_string()
+                            })
+                            .color(match team_id {
+                                1 => egui::Color32::DARK_RED,
+                                2 => egui::Color32::DARK_BLUE,
+                                _ => egui::Color32::DARK_GRAY,
+                            })
+                            .size(unit * 2. / 7.),
+                        ),
+                    );
+                }
             }
             ui.put(
                 egui::Rect::from_center_size(trans(pos2(0., 0.5)), vec2(1., 1.) * (unit)),

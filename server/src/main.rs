@@ -1,4 +1,5 @@
 use bimap::BiMap;
+use itertools::Itertools;
 use laminar::{ErrorKind, Packet, Socket, SocketEvent};
 use std::{collections::HashMap, net::SocketAddr, thread};
 
@@ -17,6 +18,8 @@ fn server() -> Result<(), ErrorKind> {
     let mut clients: BiMap<u8, SocketAddr> = BiMap::new();
     let mut teams: HashMap<u8, u8> = HashMap::new();
     let mut game_in_progress = false;
+    const WIN_MARGIN: std::time::Duration = std::time::Duration::new(2, 0);
+    let mut last_loss: Option<std::time::Instant> = None;
 
     loop {
         let rec = receiver.recv();
@@ -49,6 +52,16 @@ fn server() -> Result<(), ErrorKind> {
                                             ))
                                             .expect("This should send");
                                     }
+                                }
+                                if game_in_progress {
+                                    teams.insert(next_id, 0);
+                                    println!("Id {} joined team {}", next_id, 0);
+                                    sender
+                                        .send(Packet::reliable_unordered(
+                                            packet.addr(),
+                                            Message::StartArena.ser(),
+                                        ))
+                                        .expect("This should send");
                                 }
                                 next_id += 1;
                             }
@@ -87,6 +100,9 @@ fn server() -> Result<(), ErrorKind> {
                                 .expect("This should send"),
                             Message::RegisterTeam(team_id) => {
                                 let &id = clients.get_by_right(&packet.addr()).expect("No id");
+                                if game_in_progress {
+                                    last_loss = Some(std::time::Instant::now());
+                                }
                                 teams.insert(id, team_id);
                                 println!("Id {} joined team {}", id, team_id)
                             }
@@ -121,16 +137,12 @@ fn server() -> Result<(), ErrorKind> {
         } else {
             dbg!(rec);
         }
-        let mut teams_left: Vec<u8> = vec![];
-        for (_, &team_id) in &teams {
-            if team_id != 0 && !teams_left.contains(&team_id) {
-                teams_left.push(team_id);
-            }
-        }
+
+        let team_players_left: Vec<&u8> = teams.values().filter(|&&team_id| team_id != 0).collect();
 
         if !game_in_progress
             && clients.left_values().all(|id| teams.contains_key(id))
-            && teams_left.len() > 1
+            && !team_players_left.iter().all_equal()
         {
             for &addr in clients.right_values() {
                 sender
@@ -139,15 +151,27 @@ fn server() -> Result<(), ErrorKind> {
             }
             game_in_progress = true;
             println!("Game started");
-        } else if game_in_progress && teams_left.len() <= 1 {
-            for &addr in clients.right_values() {
-                sender
-                    .send(Packet::reliable_unordered(addr, Message::EndArena.ser()))
-                    .expect("This should send");
+        } else if game_in_progress && team_players_left.iter().all_equal() {
+            if let Some(last_loss) = last_loss {
+                if std::time::Instant::now().duration_since(last_loss) > WIN_MARGIN {
+                    let winning_team = if let Some(&&team) = team_players_left.first() {
+                        team
+                    } else {
+                        0
+                    };
+                    for &addr in clients.right_values() {
+                        sender
+                            .send(Packet::reliable_unordered(
+                                addr,
+                                Message::EndArena(winning_team).ser(),
+                            ))
+                            .expect("This should send");
+                    }
+                    game_in_progress = false;
+                    println!("Game ended");
+                    teams.clear();
+                }
             }
-            game_in_progress = false;
-            println!("Game ended");
-            teams.clear();
         }
     }
 

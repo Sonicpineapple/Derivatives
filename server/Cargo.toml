@@ -11,3 +11,4 @@ path = "src/main.rs"
 derivatives_core = {path = "../core"}
 laminar = "0.5.0"
 bimap = "0.6.3"
+itertools = "0.12.1"
