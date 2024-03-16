@@ -6,7 +6,8 @@ use laminar::{Packet, Socket, SocketEvent};
 use std::sync::{Arc, Mutex};
 
 use derivatives_core::{
-    Action, ColScheme, ColSingle, LinkType, Message, Snake, World, WorldType, ZoneState,
+    ColScheme, ColSingle, GameAction, GameState, Message, NetworkAction, Snake, Text, TextType,
+    WorldType,
 };
 
 fn main() -> eframe::Result<()> {
@@ -23,20 +24,13 @@ struct App {
 }
 impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let mut world = World::new();
-        world.to_type(WorldType::MainMenu);
+        let mut game_state = GameState::new();
         if let Some(storage) = cc.storage {
             if let Some(scheme) = eframe::get_value(storage, "Scheme") {
-                world.snake_mut().set_scheme(scheme);
+                game_state.set_snake_scheme(scheme);
             }
         }
-        let game_state = Arc::new(Mutex::new(GameState {
-            world,
-            score: 0,
-            exiting: false,
-            needs_save: false,
-            last_winner: None,
-        }));
+        let game_state = Arc::new(Mutex::new(GameState::new()));
 
         let game_state_ref = Arc::clone(&game_state);
         std::thread::spawn(move || {
@@ -60,7 +54,7 @@ impl App {
             loop {
                 let mut game_state = game_state_ref.lock().unwrap();
 
-                if game_state.world.world_type().is_multiplayer() {
+                if game_state.is_multiplayer() {
                     if let Some(socket) = socket.as_mut() {
                         socket.manual_poll(std::time::Instant::now());
                         while let Some(event) = socket.recv() {
@@ -70,15 +64,12 @@ impl App {
                                         if let Ok(msg) = Message::deser(packet.payload()) {
                                             match msg {
                                                 Message::Id(id) => {
-                                                    game_state.world.snake_mut().set_id(id);
+                                                    game_state.set_snake_id(id);
                                                     println!("Connected with id {}", id);
                                                 }
                                                 Message::Snake(snake_data) => {
-                                                    if snake_data.id()
-                                                        != game_state.world.snake().id()
-                                                    {
+                                                    if snake_data.id() != game_state.snake().id() {
                                                         if let Some(guest) = game_state
-                                                            .world
                                                             .guests_mut()
                                                             .get_mut(&snake_data.id())
                                                         {
@@ -93,24 +84,28 @@ impl App {
                                                 }
                                                 Message::Heartbeat => {}
                                                 Message::Join(id) => {
-                                                    if id != game_state.world.snake().id() {
+                                                    if id != game_state.snake().id() {
                                                         game_state
-                                                            .world
                                                             .guests_mut()
                                                             .insert(id, Snake::new(id, 3));
                                                     }
                                                     println!("id {} joined", id);
                                                 }
                                                 Message::Leave(leave_id) => game_state
-                                                    .world
                                                     .guests_mut()
                                                     .retain(|&id, _| id != leave_id),
                                                 Message::StartArena => {
-                                                    game_state.world.to_type(WorldType::Arena)
+                                                    game_state.perform_actions(vec![
+                                                        GameAction::World(WorldType::Arena),
+                                                        GameAction::Respawn,
+                                                    ]);
                                                 }
-                                                Message::EndArena(u8) => {
-                                                    game_state.last_winner = Some(u8);
-                                                    game_state.world.to_type(WorldType::ArenaMenu)
+                                                Message::EndArena(team_id) => {
+                                                    game_state.set_last_winner(team_id);
+                                                    game_state.perform_actions(vec![
+                                                        GameAction::World(WorldType::ArenaMenu),
+                                                        GameAction::Respawn,
+                                                    ]);
                                                 }
                                                 _ => todo!(),
                                             }
@@ -136,82 +131,14 @@ impl App {
                 let dt = (frame_time - last_frame_time).as_secs_f32();
 
                 // Physics step
-                game_state.world.step(dt);
+                game_state.step(dt);
 
                 // Game
-                for action in game_state.world.check() {
+                for action in game_state.check() {
                     match action {
-                        Action::Reset(world_type) => {
-                            game_state.score = 0;
-                            if game_state.world.world_type().is_multiplayer()
-                                && game_state.world.world_type().is_arena()
-                            {
+                        NetworkAction::RegisterTeam(team_id) => {
+                            if game_state.is_multiplayer() {
                                 if let Some(socket) = socket.as_mut() {
-                                    socket
-                                        .send(Packet::reliable_unordered(
-                                            server,
-                                            Message::RegisterTeam(0).ser(),
-                                        ))
-                                        .expect("BAAAAD");
-                                    socket.manual_poll(std::time::Instant::now());
-                                }
-                                game_state.world.snake_mut().set_team(0);
-                            }
-                            game_state.world.to_type(world_type);
-                        }
-                        Action::Move(world_type) => {
-                            game_state.world.to_type_move(world_type);
-                        }
-                        Action::Point => match game_state.world.world_type() {
-                            WorldType::Standard => {
-                                game_state.score += 1;
-                                game_state.world.add_goal();
-                            }
-                            _ => todo!(),
-                        },
-                        Action::ToggleLeadingTrail => {
-                            game_state.world.snake_mut().toggle_leading_trail()
-                        }
-                        Action::AdjustNodeCount(n) => {
-                            for _ in 0..(n.abs()) {
-                                if n < 0 {
-                                    game_state.world.snake_mut().remove();
-                                } else {
-                                    game_state.world.snake_mut().add();
-                                }
-                            }
-                        }
-                        Action::Exit => game_state.exit(),
-                        Action::Dummy => continue,
-                        Action::JoinMultiplayer => {
-                            let mut skt = Socket::bind(addr).expect("Bad");
-                            println!("Connected on {}", addr);
-                            // let mut game_state = game_state_ref.lock().unwrap();
-                            // if game_state.world.world_type().is_multiplayer() {}
-                            skt.send(Packet::reliable_unordered(server, Message::Connect.ser()))
-                                .expect("BAAAAD");
-                            skt.manual_poll(std::time::Instant::now());
-                            socket = Some(skt);
-                            game_state.world.to_type_move(WorldType::ArenaMenu);
-                        }
-                        Action::LeaveMultiplayer => {
-                            if let Some(socket) = socket.as_mut() {
-                                socket
-                                    .send(Packet::reliable_unordered(
-                                        server,
-                                        Message::Disconnect.ser(),
-                                    ))
-                                    .expect("BAAAAD");
-                                socket.manual_poll(std::time::Instant::now());
-                            }
-                            socket = None;
-                            game_state.world.guests_mut().clear();
-                            game_state.world.to_type_move(WorldType::MainMenu);
-                        }
-                        Action::RegisterTeam(team_id) => {
-                            if game_state.world.world_type().is_multiplayer() {
-                                if let Some(socket) = socket.as_mut() {
-                                    game_state.world.snake_mut().set_team(team_id);
                                     socket
                                         .send(Packet::reliable_unordered(
                                             server,
@@ -222,41 +149,31 @@ impl App {
                                 }
                             }
                         }
-                        Action::SetColScheme(scheme) => {
-                            game_state.world.snake_mut().set_scheme(scheme);
-                            game_state.needs_save = true;
+                        NetworkAction::JoinMultiplayer => {
+                            let mut skt = Socket::bind(addr).expect("Bad");
+                            println!("Connected on {}", addr);
+                            skt.send(Packet::reliable_unordered(server, Message::Connect.ser()))
+                                .expect("BAAAAD");
+                            skt.manual_poll(std::time::Instant::now());
+                            socket = Some(skt);
                         }
-                        Action::CycleColScheme => {
-                            game_state.world.snake_mut().cycle_scheme();
-                            game_state.needs_save = true;
+                        NetworkAction::LeaveMultiplayer => {
+                            if let Some(socket) = socket.as_mut() {
+                                socket
+                                    .send(Packet::reliable_unordered(
+                                        server,
+                                        Message::Disconnect.ser(),
+                                    ))
+                                    .expect("BAAAAD");
+                                socket.manual_poll(std::time::Instant::now());
+                            }
+                            socket = None;
                         }
                     }
                 }
-                match game_state.world.world_type() {
-                    WorldType::Standard => {
-                        if (game_state.world.snake().order() + 1)
-                            * (game_state.world.snake().order() + 1)
-                            <= game_state.score
-                        {
-                            game_state.world.snake_mut().add();
-                        }
-                    }
-                    WorldType::Survival | WorldType::Gravity => {
-                        game_state.score = game_state.world.time().as_secs() as usize;
-
-                        if (game_state.world.snake().order() + 1)
-                            * (game_state.world.snake().order() + 1)
-                            <= game_state.score
-                        {
-                            game_state.world.snake_mut().add();
-                        }
-                    }
-                    _ => (),
-                }
-
-                if game_state.world.world_type().is_multiplayer() {
+                if game_state.is_multiplayer() {
                     if let Some(socket) = socket.as_mut() {
-                        let snake_data = game_state.world.snake().data();
+                        let snake_data = game_state.snake().data().clone();
                         socket
                             .send(Packet::reliable_unordered(
                                 server,
@@ -266,11 +183,6 @@ impl App {
                         socket
                             .send(Packet::reliable_unordered(server, Message::Heartbeat.ser()))
                             .expect("BAAAAD");
-                        // let mut msg = Message::Snake(game_state.world.snake().clone()).ser();
-                        // msg.append(&mut Message::Snake(game_state.world.snake().clone()).ser());
-                        // socket
-                        //     .send(Packet::reliable_unordered(server, msg))
-                        //     .expect("BAAAAD");
                         socket.manual_poll(std::time::Instant::now());
                     }
                 }
@@ -285,54 +197,6 @@ impl App {
     }
 }
 
-struct GameState {
-    world: World,
-    score: usize,
-    exiting: bool,
-    needs_save: bool,
-    last_winner: Option<u8>,
-}
-impl GameState {
-    fn set_snake_follow_target(&mut self, mpos: Pos2) {
-        self.world.snake_mut().follow(mpos);
-    }
-    fn link_snake(&mut self, mpos: Pos2) {
-        let (target_id, target_index, _) = self
-            .world
-            .guests()
-            .iter()
-            .chain([(&self.world.snake().id(), self.world.snake())])
-            .map(|(&id, snake)| {
-                (0..snake.order() + 1).map(move |a| (id, a, (mpos - snake.npos(a)).length_sq()))
-            })
-            .flatten()
-            .min_by(|(_, _, a), (_, _, b)| a.total_cmp(b))
-            .expect("No closest point");
-        // let target = (0..self.world.snake().order() + 1)
-        //     .min_by(|&a, &b| {
-        //         (mpos - self.world.snake().npos(a))
-        //             .length_sq()
-        //             .total_cmp(&(mpos - self.world.snake().npos(b)).length_sq())
-        //     })
-        //     .expect("No closest point");
-        if target_id == self.world.snake().id() {
-            self.world.link_snake(target_index);
-        } else {
-            self.world.link_snake_other(target_id, target_index);
-        }
-    }
-    fn anchor_snake(&mut self) {
-        self.world.snake_mut().anchor();
-    }
-
-    fn exit(&mut self) {
-        self.exiting = true;
-    }
-    fn is_exiting(&self) -> bool {
-        self.exiting
-    }
-}
-
 fn transform(pos: Pos2, transform: (f32, Vec2)) -> Pos2 {
     (pos.to_vec2() * transform.0).to_pos2() + transform.1
 }
@@ -340,27 +204,31 @@ fn inv_transform(pos: Pos2, transform: (f32, Vec2)) -> Pos2 {
     ((pos - transform.1).to_vec2() / transform.0).to_pos2()
 }
 
-fn draw_world(world: &World, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
-    for hazard in world.hazards() {
+fn draw_state(game_state: &GameState, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
+    let screen = game_state.screen();
+    for text in screen.texts() {
+        draw_text(game_state, text, ui, trans, unit);
+    }
+    for hazard in screen.hazards() {
         draw_hazard(hazard, ui, trans, unit);
     }
-    for zone in world.zones() {
+    for zone in screen.zones() {
         draw_zone(zone, ui, trans, unit);
     }
-    for guest in world.guests().values() {
-        let gamma_mult = if world.world_type().is_multiplayer() && guest.team() == 0 {
+    for guest in game_state.guests().values() {
+        let gamma_mult = if game_state.is_multiplayer() && guest.team() == 0 {
             0.5
         } else {
             1.
         };
         draw_snake(guest, ui, trans, unit, gamma_mult);
     }
-    let gamma_mult = if world.world_type().is_arena() && world.snake().team() == 0 {
+    let gamma_mult = if game_state.is_arena() && game_state.snake().team() == 0 {
         0.25
     } else {
         1.
     };
-    draw_snake(world.snake(), ui, trans, unit, gamma_mult);
+    draw_snake(game_state.snake(), ui, trans, unit, gamma_mult);
 }
 fn draw_hazard(
     hazard: &derivatives_core::Hazard,
@@ -394,18 +262,8 @@ fn draw_zone(
                 .circle_filled(centre, (radius - edge_width / 2.) * zone.progress(), col);
         }
     }
-    ui.painter().circle_stroke(
-        centre,
-        radius,
-        (
-            edge_width,
-            match zone.state() {
-                ZoneState::Empty => get_col(zone.empty_col()),
-                ZoneState::Held => get_col(zone.held_col()),
-                ZoneState::Set => get_col(zone.set_col().expect("No set colour")),
-            },
-        ),
-    );
+    ui.painter()
+        .circle_stroke(centre, radius, (edge_width, get_col(zone.current_col())));
     if let Some(label) = zone.label() {
         ui.put(
             egui::Rect::from_center_size(centre, (2. * (radius - edge_width)) * vec2(1., 1.)),
@@ -422,23 +280,24 @@ fn draw_snake(
 ) {
     let node_rad = unit / 50.;
     let line_width = unit / 80.;
-    for (t, h) in snake.history().iter().enumerate() {
+    let history = snake.history();
+    for (t, h) in history.history().iter().enumerate() {
         for (i, &e) in h.iter().enumerate() {
-            if snake.leading_trail() || i < snake.order() {
-                let col = get_scheme(snake.scheme())(
+            if history.leading_trail() || i < snake.data().order() {
+                let col = get_scheme(snake.data().scheme())(
                     i,
-                    h.len() + if snake.leading_trail() { 0 } else { 1 },
+                    h.len() + if history.leading_trail() { 0 } else { 1 },
                 )
-                .gamma_multiply(gamma_mult * t as f32 / (4 * snake.memory()) as f32);
+                .gamma_multiply(gamma_mult * t as f32 / (4 * history.memory()) as f32);
                 ui.painter().circle_filled(
                     trans(e),
-                    t as f32 * node_rad / (3 * snake.memory()) as f32,
+                    t as f32 * node_rad / (3 * history.memory()) as f32,
                     col,
                 );
             }
         }
     }
-    for i in 1..snake.derivatives().len() {
+    for i in 1..snake.data().derivatives().len() {
         let col = match snake.team() {
             1 => egui::Color32::DARK_RED,
             2 => egui::Color32::DARK_BLUE,
@@ -446,15 +305,52 @@ fn draw_snake(
         }
         .gamma_multiply(gamma_mult);
         ui.painter().line_segment(
-            [trans(snake.npos(i - 1)), trans(snake.npos(i))],
+            [trans(snake.data().npos(i - 1)), trans(snake.data().npos(i))],
             (line_width, col),
         );
     }
-    for i in 0..snake.derivatives().len() {
-        let col = get_scheme(snake.scheme())(i, snake.order() + 1).gamma_multiply(gamma_mult);
+    for i in 0..snake.data().derivatives().len() {
+        let col = get_scheme(snake.data().scheme())(i, snake.data().order() + 1)
+            .gamma_multiply(gamma_mult);
         ui.painter()
-            .circle_filled(trans(snake.npos(i)), node_rad, col);
+            .circle_filled(trans(snake.data().npos(i)), node_rad, col);
     }
+}
+fn draw_text(
+    game_state: &GameState,
+    text: &Text,
+    ui: &mut egui::Ui,
+    trans: &dyn Fn(Pos2) -> Pos2,
+    unit: f32,
+) {
+    let real_text = match text.text() {
+        TextType::SnakeOrder => game_state.snake().data().order().to_string(),
+        TextType::Score => game_state.score().to_string(),
+        TextType::Text(string) => string.to_string(),
+        TextType::LastWinner => {
+            if let Some(last_winner) = game_state.last_winner() {
+                last_winner.to_string()
+            } else {
+                "".to_string()
+            }
+        }
+    };
+    let col = get_col(match text.text() {
+        TextType::LastWinner => match game_state.last_winner() {
+            Some(1) => ColSingle::DarkRed,
+            Some(2) => ColSingle::LightBlue,
+            _ => ColSingle::DarkGrey,
+        },
+        _ => ColSingle::DarkGrey,
+    });
+    ui.put(
+        egui::Rect::from_center_size(trans(text.position()), vec2(1., 1.) * (unit)),
+        egui::widgets::Label::new(
+            egui::RichText::new(real_text)
+                .color(col)
+                .size(unit * text.size()),
+        ),
+    );
 }
 fn get_col(col: ColSingle) -> egui::Color32 {
     match col {
@@ -497,13 +393,13 @@ fn colorous_to_egui(col: colorous::Color) -> egui::Color32 {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut game_state = self.game_state.lock().unwrap();
-        if game_state.needs_save {
+        if game_state.needs_save() {
             eframe::set_value(
                 _frame.storage_mut().expect("No storage"),
                 "Scheme",
-                &game_state.world.snake().scheme(),
+                &game_state.snake().data().scheme(),
             );
-            game_state.needs_save = false;
+            game_state.set_saved()
         }
         if game_state.is_exiting() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close)
@@ -532,46 +428,7 @@ impl eframe::App for App {
                     game_state.anchor_snake();
                 }
             }
-            // Drawing
-            if game_state.world.world_type().is_playfield() {
-                ui.put(
-                    egui::Rect::from_center_size(trans(pos2(0., 0.)), vec2(1., 1.) * (unit)),
-                    egui::widgets::Label::new(
-                        egui::RichText::new(game_state.score.to_string())
-                            .color(egui::Color32::DARK_GRAY)
-                            .size(unit * 1. / 2.),
-                    ),
-                );
-            }
-            if game_state.world.world_type() == WorldType::ArenaMenu {
-                if let Some(team_id) = game_state.last_winner {
-                    ui.put(
-                        egui::Rect::from_center_size(trans(pos2(0., -0.5)), vec2(1., 1.) * (unit)),
-                        egui::widgets::Label::new(
-                            egui::RichText::new(if team_id == 0 {
-                                "Draw".to_string()
-                            } else {
-                                "Win".to_string()
-                            })
-                            .color(match team_id {
-                                1 => egui::Color32::DARK_RED,
-                                2 => egui::Color32::DARK_BLUE,
-                                _ => egui::Color32::DARK_GRAY,
-                            })
-                            .size(unit * 2. / 7.),
-                        ),
-                    );
-                }
-            }
-            ui.put(
-                egui::Rect::from_center_size(trans(pos2(0., 0.5)), vec2(1., 1.) * (unit)),
-                egui::widgets::Label::new(
-                    egui::RichText::new(game_state.world.snake().order().to_string())
-                        .color(egui::Color32::DARK_GRAY)
-                        .size(unit * 2. / 7.),
-                ),
-            );
-            draw_world(&game_state.world, ui, &trans, unit);
+            draw_state(&game_state, ui, &trans, unit);
         });
         ctx.request_repaint();
     }
