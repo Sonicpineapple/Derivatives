@@ -284,6 +284,9 @@ impl GameState {
                 GameAction::Reset => {
                     score_board.score = 0;
                     player.snake_mut().set_team(0);
+                    if world.world_type().is_multiplayer() {
+                        net_actions.push(NetworkAction::RegisterTeam(0))
+                    }
                     let target = current_screen.reset_target();
                     match target {
                         ResetTarget::SameScreen => {
