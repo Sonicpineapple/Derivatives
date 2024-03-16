@@ -102,6 +102,7 @@ impl App {
                                                 }
                                                 Message::EndArena(team_id) => {
                                                     game_state.set_last_winner(team_id);
+                                                    game_state.set_snake_team(0);
                                                     game_state.perform_actions(vec![
                                                         GameAction::World(WorldType::ArenaMenu),
                                                         GameAction::Respawn,

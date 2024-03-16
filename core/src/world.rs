@@ -388,9 +388,9 @@ impl WorldDefinition {
                     vec![],
                     vec![Text::order()],
                     Spawner::new_team(vec![
-                        (0, pos2(0., -0.5), 2),
-                        (1, pos2(-0.5, 0.), 4),
-                        (2, pos2(0.5, 0.), 4),
+                        (0, pos_rt(unit, 0.), 2),
+                        (1, pos_rt(unit, PI * 3. / 2.), 4),
+                        (2, pos_rt(unit, PI * 1. / 2.), 4),
                     ]),
                     ResetTarget::SameScreen,
                 ));
