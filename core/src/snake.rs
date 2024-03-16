@@ -174,7 +174,7 @@ impl Snake {
         Self {
             data: SnakeData::new(id, order),
             history: SnakeHistory::new(),
-            interaction: None,
+            interaction: Some(Interaction::Attract(0.02)),
         }
     }
     pub fn data(&self) -> &SnakeData {
