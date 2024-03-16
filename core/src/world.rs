@@ -387,8 +387,12 @@ impl WorldDefinition {
                     vec![],
                     vec![],
                     vec![Text::order()],
-                    Spawner::new(pos2(0., 0.), 5),
-                    ResetTarget::WorldRoot(WorldType::MainMenu),
+                    Spawner::new_team(vec![
+                        (0, pos2(0., -0.5), 2),
+                        (1, pos2(-0.5, 0.), 4),
+                        (2, pos2(0.5, 0.), 4),
+                    ]),
+                    ResetTarget::SameScreen,
                 ));
             }
         };

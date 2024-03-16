@@ -67,7 +67,7 @@ impl Spawner {
         match self {
             Spawner::Standard { position, order } => snake.respawn(*position, *order),
             Spawner::Team { spawners } => {
-                let point = spawners.get(&snake.snake().id()).expect("No spawner");
+                let point = spawners.get(&snake.snake().team()).expect("No spawner");
                 point.respawn(snake);
             }
         }
