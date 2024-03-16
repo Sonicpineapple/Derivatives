@@ -329,7 +329,7 @@ fn draw_text(
         TextType::Text(string) => string.to_string(),
         TextType::LastWinner => {
             if let Some(last_winner) = game_state.last_winner() {
-                last_winner.to_string()
+                "Win".to_string()
             } else {
                 "".to_string()
             }
