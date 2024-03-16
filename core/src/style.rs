@@ -34,6 +34,7 @@ pub enum ColSingle {
     LightBlue,
     DarkGrey,
     DarkRed,
+    DarkBlue,
     Gold,
     Black,
 }

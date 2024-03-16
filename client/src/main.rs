@@ -338,7 +338,7 @@ fn draw_text(
     let col = get_col(match text.text() {
         TextType::LastWinner => match game_state.last_winner() {
             Some(1) => ColSingle::DarkRed,
-            Some(2) => ColSingle::LightBlue,
+            Some(2) => ColSingle::DarkBlue,
             _ => ColSingle::DarkGrey,
         },
         _ => ColSingle::DarkGrey,
@@ -358,7 +358,8 @@ fn get_col(col: ColSingle) -> egui::Color32 {
         ColSingle::LightGreen => egui::Color32::LIGHT_GREEN,
         ColSingle::LightBlue => egui::Color32::LIGHT_BLUE,
         ColSingle::DarkGrey => egui::Color32::DARK_GRAY,
-        ColSingle::DarkRed => egui::Color32::DARK_RED.gamma_multiply(1.),
+        ColSingle::DarkRed => egui::Color32::DARK_RED,
+        ColSingle::DarkBlue => egui::Color32::DARK_BLUE,
         ColSingle::Gold => egui::Color32::GOLD,
         ColSingle::Black => egui::Color32::BLACK,
     }
