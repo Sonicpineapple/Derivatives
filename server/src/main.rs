@@ -3,7 +3,7 @@ use itertools::Itertools;
 use laminar::{ErrorKind, Packet, Socket, SocketEvent};
 use std::{collections::HashMap, net::SocketAddr, thread};
 
-use derivatives_core::Message;
+use derivatives_core::{Message, SnakeTeam};
 
 // for localhost
 // const SERVER: &str = "127.0.0.1:12345";
@@ -16,7 +16,7 @@ fn server() -> Result<(), ErrorKind> {
     let _thread = thread::spawn(move || socket.start_polling());
     let mut next_id = 0;
     let mut clients: BiMap<u8, SocketAddr> = BiMap::new();
-    let mut teams: HashMap<u8, u8> = HashMap::new();
+    let mut teams: HashMap<u8, SnakeTeam> = HashMap::new();
     let mut game_in_progress = false;
     const WIN_MARGIN: std::time::Duration = std::time::Duration::new(2, 0);
     let mut last_loss: Option<std::time::Instant> = None;
@@ -54,7 +54,7 @@ fn server() -> Result<(), ErrorKind> {
                                     }
                                 }
                                 if game_in_progress {
-                                    teams.insert(next_id, 0);
+                                    teams.insert(next_id, SnakeTeam::Spectator);
                                     println!("Id {} joined team {}", next_id, 0);
                                     sender
                                         .send(Packet::reliable_unordered(
@@ -138,7 +138,10 @@ fn server() -> Result<(), ErrorKind> {
             dbg!(rec);
         }
 
-        let team_players_left: Vec<&u8> = teams.values().filter(|&&team_id| team_id != 0).collect();
+        let team_players_left: Vec<&SnakeTeam> = teams
+            .values()
+            .filter(|&&team_id| team_id != SnakeTeam::Spectator)
+            .collect();
 
         if !game_in_progress
             && clients.left_values().all(|id| teams.contains_key(id))
@@ -157,7 +160,7 @@ fn server() -> Result<(), ErrorKind> {
                     let winning_team = if let Some(&&team) = team_players_left.first() {
                         team
                     } else {
-                        0
+                        SnakeTeam::Spectator
                     };
                     for &addr in clients.right_values() {
                         sender

@@ -6,12 +6,15 @@ use laminar::{Packet, Socket, SocketEvent};
 use std::sync::{Arc, Mutex};
 
 use derivatives_core::{
-    ColScheme, ColSingle, GameAction, GameState, Message, NetworkAction, Snake, Text, TextType,
-    WorldType,
+    get_team_col, ColScheme, ColSingle, GameAction, GameState, Message, NetworkAction, Snake,
+    SnakeTeam, Text, Value, WorldType,
 };
 
 fn main() -> eframe::Result<()> {
-    let native_options = eframe::NativeOptions::default();
+    let native_options = eframe::NativeOptions {
+        follow_system_theme: false,
+        ..Default::default()
+    };
     eframe::run_native(
         "Window Title",
         native_options,
@@ -30,7 +33,7 @@ impl App {
                 game_state.set_snake_scheme(scheme);
             }
         }
-        let game_state = Arc::new(Mutex::new(GameState::new()));
+        let game_state = Arc::new(Mutex::new(game_state));
 
         let game_state_ref = Arc::clone(&game_state);
         std::thread::spawn(move || {
@@ -73,6 +76,7 @@ impl App {
                                                             .guests_mut()
                                                             .get_mut(&snake_data.id())
                                                         {
+                                                            guest.step_history();
                                                             guest.set_data(snake_data);
                                                         } else {
                                                             println!(
@@ -102,7 +106,7 @@ impl App {
                                                 }
                                                 Message::EndArena(team_id) => {
                                                     game_state.set_last_winner(team_id);
-                                                    game_state.set_snake_team(0);
+                                                    game_state.set_snake_team(None);
                                                     game_state.perform_actions(vec![
                                                         GameAction::World(WorldType::ArenaMenu),
                                                         GameAction::Respawn,
@@ -217,18 +221,20 @@ fn draw_state(game_state: &GameState, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) ->
         draw_zone(zone, ui, trans, unit);
     }
     for guest in game_state.guests().values() {
-        let gamma_mult = if game_state.is_multiplayer() && guest.team() == 0 {
-            0.5
+        let gamma_mult =
+            if game_state.is_multiplayer() && guest.team() == Some(SnakeTeam::Spectator) {
+                0.5
+            } else {
+                1.
+            };
+        draw_snake(guest, ui, trans, unit, gamma_mult);
+    }
+    let gamma_mult =
+        if game_state.is_arena() && game_state.snake().team() == Some(SnakeTeam::Spectator) {
+            0.25
         } else {
             1.
         };
-        draw_snake(guest, ui, trans, unit, gamma_mult);
-    }
-    let gamma_mult = if game_state.is_arena() && game_state.snake().team() == 0 {
-        0.25
-    } else {
-        1.
-    };
     draw_snake(game_state.snake(), ui, trans, unit, gamma_mult);
 }
 fn draw_hazard(
@@ -299,11 +305,11 @@ fn draw_snake(
         }
     }
     for i in 1..snake.data().derivatives().len() {
-        let col = match snake.team() {
-            1 => egui::Color32::DARK_RED,
-            2 => egui::Color32::DARK_BLUE,
-            _ => egui::Color32::DARK_GRAY,
-        }
+        let col = get_col(if let Some(team) = snake.team() {
+            get_team_col(team)
+        } else {
+            ColSingle::DarkGrey
+        })
         .gamma_multiply(gamma_mult);
         ui.painter().line_segment(
             [trans(snake.data().npos(i - 1)), trans(snake.data().npos(i))],
@@ -325,23 +331,30 @@ fn draw_text(
     unit: f32,
 ) {
     let real_text = match text.text() {
-        TextType::SnakeOrder => game_state.snake().data().order().to_string(),
-        TextType::Score => game_state.score().to_string(),
-        TextType::Text(string) => string.to_string(),
-        TextType::LastWinner => {
+        Value::Const(string) => string.to_string(),
+        Value::Score => game_state.score().to_string(),
+        Value::LastWinner => {
             if let Some(last_winner) = game_state.last_winner() {
-                "Win".to_string()
+                match last_winner {
+                    SnakeTeam::Spectator => "Draw",
+                    _ => "Win",
+                }
+                .to_string()
             } else {
                 "".to_string()
             }
         }
+        Value::SnakeOrder => game_state.snake().data().order().to_string(),
+        Value::ArenaOrder => game_state.arena_order().to_string(),
     };
     let col = get_col(match text.text() {
-        TextType::LastWinner => match game_state.last_winner() {
-            Some(1) => ColSingle::DarkRed,
-            Some(2) => ColSingle::DarkBlue,
-            _ => ColSingle::DarkGrey,
-        },
+        Value::LastWinner => {
+            if let Some(team) = game_state.last_winner() {
+                get_team_col(team)
+            } else {
+                ColSingle::DarkGrey
+            }
+        }
         _ => ColSingle::DarkGrey,
     });
     ui.put(

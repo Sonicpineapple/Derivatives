@@ -1,5 +1,6 @@
 use emath::{pos2, vec2, Pos2, Vec2};
 
+mod actions;
 mod game_state;
 mod interaction;
 mod network;
@@ -9,6 +10,7 @@ mod style;
 mod world;
 mod zone;
 
+pub use actions::*;
 pub use game_state::*;
 pub use network::*;
 pub use objects::*;

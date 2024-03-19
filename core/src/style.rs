@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::SnakeTeam;
+
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ColScheme {
     Sinebow,
@@ -37,4 +39,15 @@ pub enum ColSingle {
     DarkBlue,
     Gold,
     Black,
+}
+
+pub fn get_team_col(team: SnakeTeam) -> ColSingle {
+    match team {
+        SnakeTeam::Spectator => ColSingle::DarkGrey,
+        SnakeTeam::Team(team) => match team {
+            1 => ColSingle::DarkRed,
+            2 => ColSingle::DarkBlue,
+            _ => ColSingle::DarkGrey,
+        },
+    }
 }

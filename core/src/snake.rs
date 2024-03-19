@@ -103,7 +103,7 @@ impl SnakeHistory {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SnakeData {
     id: u8,
-    team: u8,
+    team: Option<SnakeTeam>,
     order: usize,
     derivatives: Vec<Vec2>,
     scheme: ColScheme,
@@ -112,7 +112,7 @@ impl SnakeData {
     fn new(id: u8, order: usize) -> Self {
         Self {
             id,
-            team: 0,
+            team: None,
             order,
             derivatives: vec![vec2(0., 0.); order + 1],
             scheme: ColScheme::Sinebow,
@@ -189,10 +189,10 @@ impl Snake {
     pub fn set_id(&mut self, id: u8) {
         self.data.id = id
     }
-    pub fn team(&self) -> u8 {
+    pub fn team(&self) -> Option<SnakeTeam> {
         self.data.team
     }
-    pub fn set_team(&mut self, team: u8) {
+    pub fn set_team(&mut self, team: Option<SnakeTeam>) {
         self.data.team = team
     }
     pub fn derivatives_mut(&mut self) -> &mut Vec<Vec2> {
@@ -207,7 +207,7 @@ impl Snake {
     pub fn history(&self) -> &SnakeHistory {
         &self.history
     }
-    pub(crate) fn step_history(&mut self) {
+    pub fn step_history(&mut self) {
         self.history.history.push_back(
             (0..(self.data.order + if self.history.leading_trail { 1 } else { 0 }))
                 .map(|i| self.data.npos(i))
@@ -239,4 +239,18 @@ pub enum SnakeState {
 pub enum LinkType {
     ToSelf(usize),
     ToOther(u8, usize),
+}
+
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SnakeTeam {
+    Spectator,
+    Team(u8),
+}
+impl std::fmt::Display for SnakeTeam {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SnakeTeam::Spectator => write!(f, "spectator"),
+            SnakeTeam::Team(team) => write!(f, "{}", team),
+        }
+    }
 }

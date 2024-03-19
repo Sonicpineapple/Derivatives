@@ -5,14 +5,37 @@ use emath::{pos2, Pos2};
 use crate::{
     snake::{LinkType, Snake, SnakePilot, SnakeState},
     world::{ResetTarget, Screen, ScreenId, ScreenIndex, WorldType},
-    ColScheme, GameAction, NetworkAction, WorldDefinition,
+    ColScheme, GameAction, NetworkAction, SnakeTeam, WorldDefinition,
 };
 
 pub struct ScoreBoard {
     pub(crate) score: usize,
-    last_winner: Option<u8>,
+    last_winner: Option<SnakeTeam>,
 }
 impl ScoreBoard {}
+
+#[derive(Debug, Copy, Clone)]
+pub enum Value<T: Copy> {
+    Const(T),
+    Score,
+    LastWinner,
+    SnakeOrder,
+    ArenaOrder,
+}
+impl<T: Copy> From<T> for Value<T> {
+    fn from(value: T) -> Self {
+        Value::Const(value)
+    }
+}
+
+pub struct Settings {
+    arena_order: usize,
+}
+impl Settings {
+    fn new() -> Self {
+        Self { arena_order: 5 }
+    }
+}
 
 pub struct GameState {
     world: WorldDefinition,
@@ -23,14 +46,14 @@ pub struct GameState {
     time: std::time::Duration,
     exiting: bool,
     needs_save: bool,
+    settings: Settings,
 }
 impl GameState {
     pub fn new() -> Self {
         let world = WorldDefinition::new(WorldType::MainMenu);
         let current_screen = world.screen(ScreenId::Root);
-        let mut player = SnakePilot::new(Snake::new(0, 2));
-        current_screen.respawn(&mut player);
-        let game_state = Self {
+        let player = SnakePilot::new(Snake::new(0, 2));
+        let mut game_state = Self {
             world,
             current_screen,
             score_board: ScoreBoard {
@@ -42,7 +65,9 @@ impl GameState {
             time: std::time::Duration::from_secs(0),
             exiting: false,
             needs_save: false,
+            settings: Settings::new(),
         };
+        game_state.respawn();
         game_state
     }
     pub fn snake(&self) -> &Snake {
@@ -98,7 +123,6 @@ impl GameState {
     pub fn step(&mut self, dt: f32) {
         self.step_snake(dt);
         let Self {
-            world,
             current_screen,
             player,
             guests,
@@ -109,7 +133,9 @@ impl GameState {
         if screen.is_arena() {
             for (_, guest) in guests {
                 if player.snake().team() != guest.team()
-                    && player.snake().team() * guest.team() != 0
+                    && ![player.snake().team(), guest.team()]
+                        .into_iter()
+                        .any(|team| team == Some(SnakeTeam::Spectator))
                 {
                     player.interact(guest, dt);
                     //guest.interact(&self.snake(), dt);
@@ -228,7 +254,7 @@ impl GameState {
         self.snake_mut().cycle_scheme();
         self.needs_save = true;
     }
-    pub fn set_snake_team(&mut self, team_id: u8) {
+    pub fn set_snake_team(&mut self, team_id: Option<SnakeTeam>) {
         self.snake_mut().set_team(team_id);
     }
     pub fn set_snake_id(&mut self, id: u8) {
@@ -255,10 +281,10 @@ impl GameState {
     pub fn world_type(&self) -> WorldType {
         self.world.world_type()
     }
-    pub fn last_winner(&self) -> Option<u8> {
+    pub fn last_winner(&self) -> Option<SnakeTeam> {
         self.score_board.last_winner
     }
-    pub fn set_last_winner(&mut self, team_id: u8) {
+    pub fn set_last_winner(&mut self, team_id: SnakeTeam) {
         self.score_board.last_winner = Some(team_id);
     }
 
@@ -267,70 +293,76 @@ impl GameState {
         self.perform_actions(actions)
     }
     pub fn perform_actions(&mut self, actions: Vec<GameAction>) -> Vec<NetworkAction> {
-        let Self {
-            world,
-            current_screen,
-            player,
-            exiting,
-            score_board,
-            guests,
-            time,
-            ..
-        } = self;
         let mut net_actions = vec![];
         for action in actions {
             match action {
-                GameAction::Respawn => current_screen.respawn(player),
+                GameAction::Respawn => self.respawn(),
                 GameAction::Reset => {
-                    score_board.score = 0;
-                    player.snake_mut().set_team(0);
-                    if world.world_type().is_multiplayer() {
-                        net_actions.push(NetworkAction::RegisterTeam(0))
-                    }
-                    let target = current_screen.reset_target();
-                    match target {
-                        ResetTarget::SameScreen => {
-                            *current_screen = world.screen(current_screen.id())
-                        }
-                        ResetTarget::WorldRoot(world_type) => {
-                            *world = WorldDefinition::new(world_type);
-                            *current_screen = world.screen(ScreenId::Root);
-                        }
+                    self.reset();
+                    if self.world.world_type().is_multiplayer() {
+                        net_actions.push(NetworkAction::RegisterTeam(SnakeTeam::Spectator))
                     }
                 }
-                GameAction::Move(screen_id) => *current_screen = world.screen(screen_id),
+                GameAction::Move(screen_id) => self.current_screen = self.world.screen(screen_id),
                 GameAction::World(world_type) => {
-                    *world = WorldDefinition::new(world_type);
-                    *current_screen = world.screen(ScreenId::Root);
-                    *time = std::time::Duration::from_secs(0);
+                    self.world = WorldDefinition::new(world_type);
+                    self.current_screen = self.world.screen(ScreenId::Root);
+                    self.time = std::time::Duration::from_secs(0);
                 }
-                GameAction::Exit => *exiting = true,
-                GameAction::Point => score_board.score += 1,
-                GameAction::GenerateGoal => current_screen.add_goal_rand(),
+                GameAction::Exit => self.exiting = true,
+                GameAction::Point => self.score_board.score += 1,
+                GameAction::GenerateGoal => self.current_screen.add_goal_rand(),
                 GameAction::JoinMultiplayer => net_actions.push(NetworkAction::JoinMultiplayer),
                 GameAction::LeaveMultiplayer => {
-                    guests.clear();
+                    self.guests.clear();
                     net_actions.push(NetworkAction::LeaveMultiplayer);
                 }
-                GameAction::RegisterTeam(id) => {
-                    player.snake_mut().set_team(id);
-                    net_actions.push(NetworkAction::RegisterTeam(id));
+                GameAction::RegisterTeam(team) => {
+                    self.player.snake_mut().set_team(Some(team));
+                    net_actions.push(NetworkAction::RegisterTeam(team));
                 }
-                GameAction::SetColScheme(scheme) => player.snake_mut().set_scheme(scheme),
-                GameAction::CycleColScheme => player.snake_mut().cycle_scheme(),
-                GameAction::ToggleLeadingTrail => player.snake_mut().toggle_leading_trail(),
+                GameAction::SetColScheme(scheme) => self.player.snake_mut().set_scheme(scheme),
+                GameAction::CycleColScheme => self.player.snake_mut().cycle_scheme(),
+                GameAction::ToggleLeadingTrail => self.player.snake_mut().toggle_leading_trail(),
                 GameAction::AdjustNodeCount(n) => {
                     for _ in 0..(n.abs()) {
                         if n < 0 {
-                            player.remove();
+                            self.player.remove();
                         } else {
-                            player.add();
+                            self.player.add();
                         }
                     }
+                }
+                GameAction::AdjustArenaOrder(n) => {
+                    self.settings.arena_order =
+                        4.min(self.settings.arena_order as isize + n) as usize
                 }
             }
         }
         net_actions
+    }
+    pub fn respawn(&mut self) {
+        let spawner = self.current_screen.spawner_for(&self.player);
+        let order = match spawner.order() {
+            Value::Const(order) => order,
+            Value::ArenaOrder => self.settings.arena_order,
+            _ => todo!(),
+        };
+        self.player.respawn(spawner.position(), order)
+    }
+    pub fn reset(&mut self) {
+        self.score_board.score = 0;
+        self.player.snake_mut().set_team(None);
+        let target = self.current_screen.reset_target();
+        match target {
+            ResetTarget::SameScreen => {
+                self.current_screen = self.world.screen(self.current_screen.id())
+            }
+            ResetTarget::WorldRoot(world_type) => {
+                self.world = WorldDefinition::new(world_type);
+                self.current_screen = self.world.screen(ScreenId::Root);
+            }
+        }
     }
     pub fn score(&self) -> usize {
         self.score_board.score
@@ -353,6 +385,9 @@ impl GameState {
     pub fn set_saved(&mut self) {
         self.needs_save = false
     }
+    pub fn arena_order(&self) -> usize {
+        self.settings.arena_order
+    }
 
     pub fn adjust_node_count(&mut self, n: isize) {
         for _ in 0..(n.abs()) {
@@ -363,13 +398,6 @@ impl GameState {
             }
         }
     }
-    // fn to_world_internal(&mut self, world_type: WorldType, moving: bool) {
-    //     self.world = World::new(world_type);
-    //     if !moving {
-    //         self.snake().data().set_order(order);
-    //         self.player.snake.reset(pos);
-    //     }
-    // }
     pub fn screen(&self) -> &Screen {
         &self.current_screen
     }
@@ -385,11 +413,6 @@ impl GameState {
     }
     fn to_screen(&mut self, screen_id: ScreenId) {
         self.current_screen = self.world.screen(screen_id);
-    }
-    pub fn reset(&mut self, screen_index: ScreenIndex) {
-        self.to_screen_internal(screen_index.world(), screen_index.screen());
-        let spawn_point = self.current_screen.spawner().clone();
-        spawn_point.respawn(&mut self.player);
     }
     pub fn move_to_screen(&mut self, screen_index: ScreenIndex) {
         self.to_screen_internal(screen_index.world(), screen_index.screen())

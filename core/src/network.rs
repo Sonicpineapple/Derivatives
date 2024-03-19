@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::snake::SnakeData;
+use crate::{snake::SnakeData, SnakeTeam};
 
 /// Client-server messages
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -12,9 +12,9 @@ pub enum Message {
     Heartbeat,
     Join(u8),
     Leave(u8),
-    RegisterTeam(u8),
+    RegisterTeam(SnakeTeam),
     StartArena,
-    EndArena(u8),
+    EndArena(SnakeTeam),
 }
 impl Message {
     pub fn ser(&self) -> Vec<u8> {

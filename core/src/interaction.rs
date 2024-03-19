@@ -1,6 +1,6 @@
 use emath::Pos2;
 
-use crate::snake::{LinkType, Snake, SnakePilot, SnakeState};
+use crate::snake::{LinkType, SnakePilot, SnakeState};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Interaction {
@@ -37,7 +37,7 @@ impl Interaction {
                             snake.anchor()
                         }
                         SnakeState::Linked(link_type) => match link_type {
-                            LinkType::ToSelf(i) => {
+                            LinkType::ToSelf(_) => {
                                 snake.snake_mut().derivatives_mut()[1] +=
                                     dir * strength * dt / dist;
                             }

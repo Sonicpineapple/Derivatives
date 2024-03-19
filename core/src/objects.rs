@@ -2,12 +2,7 @@ use std::{collections::HashMap, fmt::Debug};
 
 use emath::{pos2, Pos2};
 
-use crate::{
-    interaction::Interaction,
-    snake::SnakePilot,
-    style::{ColScheme, ColSingle},
-    world::{ScreenId, ScreenIndex, WorldType},
-};
+use crate::{interaction::Interaction, snake::SnakePilot, style::ColSingle, SnakeTeam, Value};
 
 #[derive(Debug, Clone)]
 pub struct Hazard {
@@ -42,70 +37,79 @@ impl Hazard {
 }
 
 #[derive(Debug, Clone)]
+pub struct SpawnPoint {
+    position: Pos2,
+    order: Value<usize>,
+}
+impl SpawnPoint {
+    pub fn new(position: Pos2, order: impl Into<Value<usize>>) -> Self {
+        Self {
+            position,
+            order: order.into(),
+        }
+    }
+    pub fn default() -> Self {
+        Self {
+            position: pos2(0., 0.),
+            order: Value::Const(2),
+        }
+    }
+    pub fn position(&self) -> Pos2 {
+        self.position
+    }
+    pub fn order(&self) -> Value<usize> {
+        self.order
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Spawner {
-    Standard { position: Pos2, order: usize },
-    Team { spawners: HashMap<u8, Spawner> },
+    Standard {
+        spawn_point: SpawnPoint,
+    },
+    Team {
+        spawners: HashMap<SnakeTeam, SpawnPoint>,
+    },
 }
 impl Spawner {
-    pub fn new(position: Pos2, order: usize) -> Self {
-        Self::Standard { position, order }
+    pub fn new(spawn_point: SpawnPoint) -> Self {
+        Self::Standard { spawn_point }
     }
-    pub fn new_team(points: Vec<(u8, Pos2, usize)>) -> Self {
+    pub fn new_team(points: Vec<(SnakeTeam, SpawnPoint)>) -> Self {
         let mut spawners = HashMap::new();
-        for (id, position, order) in points {
-            spawners.insert(id, Self::Standard { position, order });
+        for (team, spawn_point) in points {
+            spawners.insert(team, spawn_point);
         }
         Self::Team { spawners }
     }
     pub fn default() -> Self {
         Self::Standard {
-            position: pos2(0., 0.),
-            order: 2,
+            spawn_point: SpawnPoint::default(),
         }
     }
-    pub fn respawn(&self, snake: &mut SnakePilot) {
+    pub fn spawner_for(&self, snake: &SnakePilot) -> &SpawnPoint {
         match self {
-            Spawner::Standard { position, order } => snake.respawn(*position, *order),
-            Spawner::Team { spawners } => {
-                let point = spawners.get(&snake.snake().team()).expect("No spawner");
-                point.respawn(snake);
-            }
+            Spawner::Standard { spawn_point } => spawn_point,
+            Spawner::Team { spawners } => spawners
+                .get(&snake.snake().team().expect("No team to spawn"))
+                .expect("No such spawner"),
         }
     }
 }
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum GameAction {
-    Respawn,
-    Reset,
-    Move(ScreenId),
-    World(WorldType),
-    Exit,
-    Point,
-    GenerateGoal,
-    JoinMultiplayer,
-    LeaveMultiplayer,
-    RegisterTeam(u8),
-    SetColScheme(ColScheme),
-    CycleColScheme,
-    ToggleLeadingTrail,
-    AdjustNodeCount(isize),
-}
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum NetworkAction {
-    RegisterTeam(u8),
-    JoinMultiplayer,
-    LeaveMultiplayer,
+impl From<SpawnPoint> for Spawner {
+    fn from(value: SpawnPoint) -> Self {
+        Self::new(value)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Text {
     position: Pos2,
     size: f32,
-    text: TextType,
+    text: Value<&'static str>,
 }
 impl Text {
-    pub fn new(position: Pos2, size: f32, text: TextType) -> Self {
+    pub fn new(position: Pos2, size: f32, text: Value<&'static str>) -> Self {
         Self {
             position,
             size,
@@ -113,13 +117,13 @@ impl Text {
         }
     }
     pub fn order() -> Self {
-        Self::new(pos2(0., 0.5), 2. / 7., TextType::SnakeOrder)
+        Self::new(pos2(0., 0.5), 2. / 7., Value::SnakeOrder)
     }
     pub fn score() -> Self {
-        Self::new(pos2(0., 0.), 1. / 2., TextType::Score)
+        Self::new(pos2(0., 0.), 1. / 2., Value::Score)
     }
     pub fn last_winner() -> Self {
-        Self::new(pos2(0., -0.5), 2. / 7., TextType::LastWinner)
+        Self::new(pos2(0., -0.5), 2. / 7., Value::LastWinner)
     }
     pub fn position(&self) -> Pos2 {
         self.position
@@ -127,14 +131,7 @@ impl Text {
     pub fn size(&self) -> f32 {
         self.size
     }
-    pub fn text(&self) -> TextType {
+    pub fn text(&self) -> Value<&str> {
         self.text
     }
-}
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum TextType {
-    SnakeOrder,
-    Score,
-    LastWinner,
-    Text(&'static str),
 }

@@ -1,6 +1,7 @@
 use emath::Pos2;
 
-use crate::{ColSingle, GameAction, SnakeData};
+use crate::GameAction;
+use crate::{ColSingle, SnakeData};
 
 #[derive(Debug, Copy, Clone)]
 pub enum ZoneType {

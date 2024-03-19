@@ -1,4 +1,4 @@
-use emath::{pos2, vec2, Pos2};
+use emath::{pos2, vec2};
 use itertools::Itertools;
 use rand::prelude::*;
 use std::{collections::HashMap, f32::consts::PI};
@@ -6,11 +6,14 @@ use std::{collections::HashMap, f32::consts::PI};
 use crate::zone::Zone;
 use crate::zone::ZoneDefinition;
 use crate::GameAction;
+use crate::SnakeTeam;
+use crate::SpawnPoint;
+use crate::Value;
 use crate::{
     objects::{Hazard, Spawner},
     pos_rt,
     snake::SnakePilot,
-    ColSingle, Text, TextType,
+    Text,
 };
 
 #[derive(Debug, Clone)]
@@ -20,7 +23,7 @@ pub struct ScreenDefinition {
     zones: Vec<ZoneDefinition>,
     hazards: Vec<Hazard>,
     texts: Vec<Text>,
-    spawn_point: Spawner,
+    spawner: Spawner,
     reset_target: ResetTarget,
 }
 impl ScreenDefinition {
@@ -30,7 +33,7 @@ impl ScreenDefinition {
         mut zones: Vec<ZoneDefinition>,
         hazards: Vec<Hazard>,
         mut texts: Vec<Text>,
-        spawn_point: Spawner,
+        spawner: impl Into<Spawner>,
         reset_target: ResetTarget,
     ) -> Self {
         let mut new_zones = vec![ZoneDefinition::killzone(
@@ -41,7 +44,7 @@ impl ScreenDefinition {
         )];
         new_zones.append(&mut zones);
         let zones = new_zones;
-        let mut new_texts = vec![Text::new(pos2(0., 0.5), 2. / 7., TextType::SnakeOrder)];
+        let mut new_texts = vec![Text::new(pos2(0., 0.5), 2. / 7., Value::SnakeOrder)];
         new_texts.append(&mut texts);
         let texts = new_texts;
         Self {
@@ -50,7 +53,7 @@ impl ScreenDefinition {
             zones,
             hazards,
             texts,
-            spawn_point,
+            spawner: spawner.into(),
             reset_target,
         }
     }
@@ -58,7 +61,7 @@ impl ScreenDefinition {
         id: ScreenId,
         zones: Vec<ZoneDefinition>,
         texts: Vec<Text>,
-        spawner: Spawner,
+        spawner: impl Into<Spawner>,
     ) -> Self {
         Self::new(
             id,
@@ -66,7 +69,7 @@ impl ScreenDefinition {
             zones,
             vec![],
             texts,
-            spawner,
+            spawner.into(),
             ResetTarget::SameScreen,
         )
     }
@@ -97,7 +100,7 @@ impl Screen {
                 .collect_vec(),
             hazards: def.hazards,
             texts: def.texts,
-            spawner: def.spawn_point,
+            spawner: def.spawner,
             reset_target: def.reset_target,
         }
     }
@@ -125,8 +128,8 @@ impl Screen {
     pub fn spawner(&self) -> &Spawner {
         &self.spawner
     }
-    pub fn respawn(&self, snake: &mut SnakePilot) {
-        self.spawner.respawn(snake)
+    pub fn spawner_for(&self, snake: &SnakePilot) -> &SpawnPoint {
+        self.spawner.spawner_for(snake)
     }
     pub fn step(&mut self, snake: &mut SnakePilot, dt: f32) {
         for hazard in &self.hazards {
@@ -203,7 +206,7 @@ impl WorldDefinition {
                         ),
                     ],
                     vec![],
-                    Spawner::new(pos_rt(unit, PI), 2),
+                    SpawnPoint::new(pos_rt(unit, PI), 2),
                 ));
                 add_screen(ScreenDefinition::new_menu(
                     ScreenId::Branch("Mode Select"),
@@ -291,21 +294,33 @@ impl WorldDefinition {
                         ZoneDefinition::option(
                             pos_rt(unit, 0.),
                             zone_rad,
-                            vec![GameAction::RegisterTeam(0)],
+                            vec![GameAction::RegisterTeam(SnakeTeam::Spectator)],
                             "Spectate".to_string(),
                         ),
                         ZoneDefinition::option(
                             pos_rt(unit, PI * 3. / 2.),
                             zone_rad,
-                            vec![GameAction::RegisterTeam(1)],
+                            vec![GameAction::RegisterTeam(SnakeTeam::Team(1))],
                             "Team 1".to_string(),
                         ),
                         ZoneDefinition::option(
                             pos_rt(unit, PI / 2.),
                             zone_rad,
-                            vec![GameAction::RegisterTeam(2)],
+                            vec![GameAction::RegisterTeam(SnakeTeam::Team(2))],
                             "Team 2".to_string(),
                         ),
+                        // ZoneDefinition::option(
+                        //     pos_rt(unit, PI * -1. / 4.),
+                        //     zone_rad,
+                        //     vec![GameAction::AdjustArenaOrder(-1)],
+                        //     "Arena Order -".to_string(),
+                        // ),
+                        // ZoneDefinition::option(
+                        //     pos_rt(unit, PI / 4.),
+                        //     zone_rad,
+                        //     vec![GameAction::AdjustArenaOrder(1)],
+                        //     "Arena Order +".to_string(),
+                        // ),
                     ],
                     vec![Text::last_winner()],
                     Spawner::default(),
@@ -348,7 +363,7 @@ impl WorldDefinition {
                     vec![],
                     vec![],
                     vec![Text::order(), Text::score()],
-                    Spawner::new(pos2(0., 0.), 0),
+                    SpawnPoint::new(pos2(0., 0.), 0),
                     ResetTarget::WorldRoot(WorldType::MainMenu),
                 );
                 add_screen(screen);
@@ -360,7 +375,7 @@ impl WorldDefinition {
                     vec![],
                     vec![],
                     vec![Text::order(), Text::score()],
-                    Spawner::new(pos2(0., 0.), 0),
+                    SpawnPoint::new(pos2(0., 0.), 0),
                     ResetTarget::WorldRoot(WorldType::MainMenu),
                 ));
             }
@@ -376,7 +391,7 @@ impl WorldDefinition {
                     )],
                     vec![Hazard::new_attractor(pos2(0., 0.), zone_rad / 3., 0.02)],
                     vec![Text::order(), Text::score()],
-                    Spawner::new(pos_rt(unit, PI), 0),
+                    SpawnPoint::new(pos_rt(unit, PI), 0),
                     ResetTarget::WorldRoot(WorldType::MainMenu),
                 ));
             }
@@ -388,9 +403,15 @@ impl WorldDefinition {
                     vec![],
                     vec![Text::order()],
                     Spawner::new_team(vec![
-                        (0, pos_rt(unit, 0.), 2),
-                        (1, pos_rt(unit, PI * 3. / 2.), 4),
-                        (2, pos_rt(unit, PI * 1. / 2.), 4),
+                        (SnakeTeam::Spectator, SpawnPoint::new(pos_rt(unit, 0.), 2)),
+                        (
+                            SnakeTeam::Team(1),
+                            SpawnPoint::new(pos_rt(unit, PI * 3. / 2.), Value::ArenaOrder),
+                        ),
+                        (
+                            SnakeTeam::Team(2),
+                            SpawnPoint::new(pos_rt(unit, PI * 1. / 2.), Value::ArenaOrder),
+                        ),
                     ]),
                     ResetTarget::SameScreen,
                 ));
