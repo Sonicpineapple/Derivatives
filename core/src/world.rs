@@ -420,7 +420,7 @@ impl WorldDefinition {
         Self {
             world_type,
             screens,
-            friction: 0.001,
+            friction: 0.00, //todo: balance this somehow
         }
     }
 

@@ -121,7 +121,10 @@ impl GameState {
         self.player.anchor();
     }
     pub fn step(&mut self, dt: f32) {
-        self.step_snake(dt);
+        let n = 1;
+        for _ in 0..n {
+            self.step_snake(dt / n as f32);
+        }
         let Self {
             current_screen,
             player,
@@ -174,14 +177,30 @@ impl GameState {
     fn step_snake(&mut self, dt: f32) {
         let state = *self.player.state();
         let friction = self.world.friction();
+        let time = self.time;
         let snake = self.snake_mut();
         snake.step_history();
-        for i in (1..(snake.data().order() + 1)).rev() {
-            let temp = snake.derivatives_mut()[i];
-            snake.derivatives_mut()[i - 1] += temp * dt;
+
+        fn factorial(n: usize) -> usize {
+            if n == 0 {
+                1
+            } else {
+                n * factorial(n - 1)
+            }
         }
+        fn der(n: usize, dt: f32, data: &crate::SnakeData) -> emath::Vec2 {
+            (n..=data.order())
+                .map(|i| data.derivatives()[i] * dt.powi((i - n) as i32) / factorial(i - n) as f32)
+                .reduce(|a, b| a + b)
+                .expect("Snake step failed")
+        }
+        let mut temp = vec![];
+        for i in (0..=snake.data().order()) {
+            temp.push(der(i, dt, snake.data()));
+        }
+        *snake.derivatives_mut() = temp;
         for i in &mut snake.derivatives_mut()[1..] {
-            *i *= 1. - friction;
+            *i *= (1. - friction).powf(dt);
         }
         match state {
             SnakeState::Following(target) => {
