@@ -11,6 +11,7 @@ pub enum GameAction {
     GenerateGoal,
     JoinMultiplayer,
     LeaveMultiplayer,
+    OpenLobbySelect,
     RegisterTeam(SnakeTeam),
     SetColScheme(ColScheme),
     CycleColScheme,

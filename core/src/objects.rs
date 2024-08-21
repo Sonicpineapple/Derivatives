@@ -125,6 +125,9 @@ impl Text {
     pub fn last_winner() -> Self {
         Self::new(pos2(0., -0.5), 2. / 7., Value::LastWinner)
     }
+    pub fn arena_order() -> Self {
+        Self::new(pos2(0., 0.), 2. / 7., Value::ArenaOrder)
+    }
     pub fn position(&self) -> Pos2 {
         self.position
     }

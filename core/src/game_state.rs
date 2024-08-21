@@ -46,6 +46,8 @@ pub struct GameState {
     time: std::time::Duration,
     exiting: bool,
     needs_save: bool,
+    paused: bool,
+    overlay: Option<OverlayType>,
     settings: Settings,
 }
 impl GameState {
@@ -65,6 +67,8 @@ impl GameState {
             time: std::time::Duration::from_secs(0),
             exiting: false,
             needs_save: false,
+            paused: false,
+            overlay: None,
             settings: Settings::new(),
         };
         game_state.respawn();
@@ -318,8 +322,9 @@ impl GameState {
                 GameAction::Respawn => self.respawn(),
                 GameAction::Reset => {
                     self.reset();
-                    if self.world.world_type().is_multiplayer() {
-                        net_actions.push(NetworkAction::RegisterTeam(SnakeTeam::Spectator))
+                    if self.world.world_type().is_arena() {
+                        net_actions.push(NetworkAction::RegisterTeam(SnakeTeam::Spectator));
+                        self.player.snake_mut().set_team(Some(SnakeTeam::Spectator));
                     }
                 }
                 GameAction::Move(screen_id) => self.current_screen = self.world.screen(screen_id),
@@ -334,7 +339,12 @@ impl GameState {
                 GameAction::JoinMultiplayer => net_actions.push(NetworkAction::JoinMultiplayer),
                 GameAction::LeaveMultiplayer => {
                     self.guests.clear();
+                    self.player.snake_mut().set_team(None);
                     net_actions.push(NetworkAction::LeaveMultiplayer);
+                }
+                GameAction::OpenLobbySelect => {
+                    self.paused = true;
+                    self.overlay = Some(OverlayType::LobbySelect)
                 }
                 GameAction::RegisterTeam(team) => {
                     self.player.snake_mut().set_team(Some(team));
@@ -401,11 +411,26 @@ impl GameState {
     pub fn needs_save(&self) -> bool {
         self.needs_save
     }
+    pub fn set_to_save(&mut self) {
+        self.needs_save = true;
+    }
     pub fn set_saved(&mut self) {
         self.needs_save = false
     }
     pub fn arena_order(&self) -> usize {
         self.settings.arena_order
+    }
+    pub fn is_paused(&self) -> bool {
+        self.paused
+    }
+    pub fn toggle_paused(&mut self) {
+        self.paused = !self.paused;
+        if !self.paused {
+            self.overlay = None;
+        }
+    }
+    pub fn overlay(&self) -> Option<OverlayType> {
+        self.overlay
     }
 
     pub fn adjust_node_count(&mut self, n: isize) {
@@ -474,4 +499,9 @@ impl GameState {
     //         Action::CycleColScheme => todo!(),
     //     }
     // }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum OverlayType {
+    LobbySelect,
 }

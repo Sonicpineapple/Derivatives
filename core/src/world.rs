@@ -242,10 +242,7 @@ impl WorldDefinition {
                         ZoneDefinition::option(
                             pos_rt(unit, PI * 1. / 3.),
                             zone_rad,
-                            vec![
-                                GameAction::JoinMultiplayer,
-                                GameAction::World(WorldType::ArenaMenu),
-                            ],
+                            vec![GameAction::World(WorldType::MultiplayerMenu)],
                             "Multiplayer".to_string(),
                         ),
                     ],
@@ -272,6 +269,36 @@ impl WorldDefinition {
                             zone_rad,
                             vec![GameAction::ToggleLeadingTrail],
                             "Leading Trail".to_string(),
+                        ),
+                    ],
+                    vec![],
+                    Spawner::default(),
+                ));
+            }
+            WorldType::MultiplayerMenu => {
+                add_screen(ScreenDefinition::new_menu(
+                    ScreenId::Root,
+                    vec![
+                        ZoneDefinition::option(
+                            pos_rt(unit, PI),
+                            zone_rad,
+                            vec![GameAction::World(WorldType::MainMenu)],
+                            "Back".to_string(),
+                        ),
+                        ZoneDefinition::option(
+                            pos_rt(unit, 0.),
+                            zone_rad,
+                            vec![GameAction::OpenLobbySelect],
+                            "Select Lobby".to_string(),
+                        ),
+                        ZoneDefinition::option(
+                            pos_rt(unit, PI * 1. / 2.),
+                            zone_rad,
+                            vec![
+                                GameAction::JoinMultiplayer,
+                                GameAction::World(WorldType::ArenaMenu),
+                            ],
+                            "Join Lobby".to_string(),
                         ),
                     ],
                     vec![],
@@ -309,20 +336,20 @@ impl WorldDefinition {
                             vec![GameAction::RegisterTeam(SnakeTeam::Team(2))],
                             "Team 2".to_string(),
                         ),
-                        // ZoneDefinition::option(
-                        //     pos_rt(unit, PI * -1. / 4.),
-                        //     zone_rad,
-                        //     vec![GameAction::AdjustArenaOrder(-1)],
-                        //     "Arena Order -".to_string(),
-                        // ),
-                        // ZoneDefinition::option(
-                        //     pos_rt(unit, PI / 4.),
-                        //     zone_rad,
-                        //     vec![GameAction::AdjustArenaOrder(1)],
-                        //     "Arena Order +".to_string(),
-                        // ),
+                        ZoneDefinition::option(
+                            pos_rt(unit * 1.5, PI * -1. / 4.),
+                            zone_rad,
+                            vec![GameAction::AdjustArenaOrder(-1)],
+                            "Arena Order -".to_string(),
+                        ),
+                        ZoneDefinition::option(
+                            pos_rt(unit * 1.5, PI / 4.),
+                            zone_rad,
+                            vec![GameAction::AdjustArenaOrder(1)],
+                            "Arena Order +".to_string(),
+                        ),
                     ],
-                    vec![Text::last_winner()],
+                    vec![Text::last_winner(), Text::arena_order()],
                     Spawner::default(),
                 ));
             }
@@ -464,6 +491,7 @@ impl World {
 pub enum WorldType {
     Debug,
     MainMenu,
+    MultiplayerMenu,
     ArenaMenu,
     Training,
     Standard,

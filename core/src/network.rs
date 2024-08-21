@@ -10,6 +10,7 @@ pub enum Message {
     Snake(SnakeData),
     Disconnect,
     Heartbeat,
+    Lobby(String),
     Join(u8),
     Leave(u8),
     RegisterTeam(SnakeTeam),
