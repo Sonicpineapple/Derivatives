@@ -363,8 +363,9 @@ impl GameState {
                     }
                 }
                 GameAction::AdjustArenaOrder(n) => {
-                    self.settings.arena_order =
-                        4.min(self.settings.arena_order as isize + n) as usize
+                    // self.settings.arena_order =
+                    //     4.min(self.settings.arena_order as isize + n) as usize
+                    net_actions.push(NetworkAction::AdjustArenaOrder(n));
                 }
             }
         }
@@ -419,6 +420,9 @@ impl GameState {
     }
     pub fn arena_order(&self) -> usize {
         self.settings.arena_order
+    }
+    pub fn set_arena_order(&mut self, arena_order: usize) {
+        self.settings.arena_order = arena_order;
     }
     pub fn is_paused(&self) -> bool {
         self.paused

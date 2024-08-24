@@ -1,6 +1,7 @@
 use emath::{pos2, vec2};
 use itertools::Itertools;
 use rand::prelude::*;
+use std::f32::consts::SQRT_2;
 use std::{collections::HashMap, f32::consts::PI};
 
 use crate::zone::Zone;
@@ -292,7 +293,7 @@ impl WorldDefinition {
                             "Select Lobby".to_string(),
                         ),
                         ZoneDefinition::option(
-                            pos_rt(unit, PI * 1. / 2.),
+                            pos_rt(0., 0.),
                             zone_rad,
                             vec![
                                 GameAction::JoinMultiplayer,
@@ -337,13 +338,13 @@ impl WorldDefinition {
                             "Team 2".to_string(),
                         ),
                         ZoneDefinition::option(
-                            pos_rt(unit * 1.5, PI * -1. / 4.),
+                            pos_rt(unit * SQRT_2, PI * -1. / 4.),
                             zone_rad,
                             vec![GameAction::AdjustArenaOrder(-1)],
                             "Arena Order -".to_string(),
                         ),
                         ZoneDefinition::option(
-                            pos_rt(unit * 1.5, PI / 4.),
+                            pos_rt(unit * SQRT_2, PI / 4.),
                             zone_rad,
                             vec![GameAction::AdjustArenaOrder(1)],
                             "Arena Order +".to_string(),

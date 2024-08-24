@@ -7,6 +7,7 @@ use crate::{snake::SnakeData, SnakeTeam};
 pub enum Message {
     Connect,
     Id(u8),
+    Refuse(String),
     Snake(SnakeData),
     Disconnect,
     Heartbeat,
@@ -14,6 +15,8 @@ pub enum Message {
     Join(u8),
     Leave(u8),
     RegisterTeam(SnakeTeam),
+    AdjustArenaOrder(isize),
+    SetArenaOrder(usize),
     StartArena,
     EndArena(SnakeTeam),
 }

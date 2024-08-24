@@ -84,6 +84,17 @@ impl App {
                                                         game_state.set_snake_id(id);
                                                         println!("Connected with id {}", id);
                                                     }
+                                                    Message::Refuse(reason) => {
+                                                        println!(
+                                                            "Connection refused with reason: {}",
+                                                            reason
+                                                        );
+                                                        game_state.perform_actions(vec![
+                                                            GameAction::World(
+                                                                WorldType::MultiplayerMenu,
+                                                            ),
+                                                        ]);
+                                                    }
                                                     Message::Snake(snake_data) => {
                                                         if snake_data.id()
                                                             != game_state.snake().id()
@@ -127,6 +138,9 @@ impl App {
                                                             GameAction::World(WorldType::ArenaMenu),
                                                             GameAction::Respawn,
                                                         ]);
+                                                    }
+                                                    Message::SetArenaOrder(n) => {
+                                                        game_state.set_arena_order(n);
                                                     }
                                                     _ => todo!(),
                                                 }
@@ -216,6 +230,20 @@ impl App {
                                     }
                                 }
                                 socket = None;
+                            }
+                            NetworkAction::AdjustArenaOrder(n) => {
+                                if let Some(socket) = socket.as_mut() {
+                                    if let Some(server) = server {
+                                        println!("Adjusted arena order by {}", n);
+                                        socket
+                                            .send(Packet::reliable_unordered(
+                                                server,
+                                                Message::AdjustArenaOrder(n).ser(),
+                                            ))
+                                            .expect("BAAAAD");
+                                        socket.manual_poll(std::time::Instant::now())
+                                    }
+                                }
                             }
                         }
                     }
@@ -551,7 +579,8 @@ impl eframe::App for App {
 
             // Controls
             {
-                if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+                if ui.input(|input| input.key_pressed(egui::Key::Escape)) && !game_state.is_arena()
+                {
                     game_state.toggle_paused()
                 }
                 if !game_state.is_paused() {

@@ -24,4 +24,5 @@ pub enum NetworkAction {
     RegisterTeam(SnakeTeam),
     JoinMultiplayer,
     LeaveMultiplayer,
+    AdjustArenaOrder(isize),
 }
