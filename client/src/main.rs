@@ -9,13 +9,12 @@ use std::{
 };
 
 use derivatives_core::{
-    get_team_col, ColScheme, ColSingle, GameAction, GameState, Message, NetworkAction, Snake,
-    SnakeTeam, Text, Value, WorldType,
+    get_team_col, ClickType, ColScheme, ColSingle, GameAction, GameState, Message, NetworkAction,
+    Snake, SnakeTeam, Text, Value, WorldType,
 };
 
 fn main() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions {
-        follow_system_theme: false,
         ..Default::default()
     };
     eframe::run_native(
@@ -50,6 +49,12 @@ impl App {
             }
             if let Some(server_ip) = eframe::get_value(storage, "Server IP") {
                 network_config.server_ip = server_ip;
+            }
+            if let Some(click_type) = eframe::get_value(storage, "Click Type") {
+                game_state.set_click_type(match click_type {
+                    ClickType::Toggle(true) => ClickType::Toggle(false),
+                    _ => click_type,
+                });
             }
         }
         let game_state = Arc::new(Mutex::new(game_state));
@@ -272,6 +277,7 @@ impl App {
                 }
             }
         });
+
         Self {
             game_state,
             network_config,
@@ -317,6 +323,19 @@ impl App {
                 egui::Align2::CENTER_CENTER,
                 "PAUSED",
                 egui::FontId::monospace(50.),
+                egui::Color32::GRAY,
+            );
+            ui.painter().text(
+                ui.clip_rect().min,
+                egui::Align2::LEFT_TOP,
+                format!(
+                    "Click type: {}",
+                    match game_state.click_type() {
+                        ClickType::Normal => "Normal".to_string(),
+                        ClickType::Toggle(t) => format!("Toggle {}", if t { "On" } else { "Off" }),
+                    }
+                ),
+                egui::FontId::monospace(25.),
                 egui::Color32::GRAY,
             );
             if let Some(overlay) = game_state.overlay() {
@@ -398,14 +417,17 @@ fn draw_zone(
         if zone.inverted() {
             let edge_width = radius * zone.progress();
             ui.painter()
-                .circle_stroke(centre, radius - edge_width / 2., (edge_width, col));
+                .circle_stroke(centre, radius - edge_width, (edge_width, col));
         } else {
             ui.painter()
                 .circle_filled(centre, (radius - edge_width / 2.) * zone.progress(), col);
         }
     }
-    ui.painter()
-        .circle_stroke(centre, radius, (edge_width, get_col(zone.current_col())));
+    ui.painter().circle_stroke(
+        centre,
+        radius - edge_width / 2.,
+        (edge_width, get_col(zone.current_col())),
+    );
     if let Some(label) = zone.label() {
         // let mut font_id = egui::TextStyle::Body.resolve(ui.style());
         // font_id.size = label_size;
@@ -586,6 +608,11 @@ impl eframe::App for App {
                 "Server IP",
                 &network_config.server_ip,
             );
+            eframe::set_value(
+                _frame.storage_mut().expect("No storage"),
+                "Click Type",
+                &game_state.click_type(),
+            );
             game_state.set_saved()
         }
         if game_state.is_exiting() {
@@ -610,16 +637,29 @@ impl eframe::App for App {
                     game_state.toggle_paused()
                 }
                 if !game_state.is_paused() {
-                    if ui.input(|input| input.pointer.primary_down()) {
+                    let follow_mouse = match game_state.click_type() {
+                        ClickType::Normal => ui.input(|input| input.pointer.primary_down()),
+                        ClickType::Toggle(t) => {
+                            if ui.input(|input| input.pointer.primary_pressed()) {
+                                game_state.set_click_type(ClickType::Toggle(!t));
+                                if !t {
+                                    game_state.anchor_snake();
+                                }
+                                !t
+                            } else {
+                                t
+                            }
+                        }
+                    };
+
+                    if follow_mouse {
                         if let Some(mpos) = ctx.pointer_latest_pos() {
                             game_state.set_snake_follow_target(itrans(mpos));
-                        };
+                        }
                     } else if ui.input(|input| input.pointer.secondary_pressed()) {
                         if let Some(mpos) = ctx.pointer_latest_pos() {
                             game_state.link_snake(itrans(mpos));
                         };
-                    } else if ui.input(|input| input.pointer.primary_released()) {
-                        game_state.anchor_snake();
                     }
                 }
             }

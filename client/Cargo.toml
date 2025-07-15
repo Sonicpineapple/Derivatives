@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 colorous = "1.0.10"
-eframe = {version = "0.28.1", features = ["persistence"]}
-egui = "0.28.1"
+eframe = {version = "0.32.0", features = ["persistence"]}
+egui = "0.32.0"
 derivatives_core = {path = "../core"}
 laminar = "0.5.0"

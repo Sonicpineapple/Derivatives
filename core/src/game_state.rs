@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use emath::{pos2, Pos2};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     snake::{LinkType, Snake, SnakePilot, SnakeState},
@@ -28,6 +29,22 @@ impl<T: Copy> From<T> for Value<T> {
     }
 }
 
+struct ControlConfig {
+    click_type: ClickType,
+}
+impl ControlConfig {
+    fn new() -> Self {
+        Self {
+            click_type: ClickType::Normal,
+        }
+    }
+}
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ClickType {
+    Normal,
+    Toggle(bool),
+}
+
 pub struct Settings {
     arena_order: usize,
 }
@@ -49,6 +66,7 @@ pub struct GameState {
     paused: bool,
     overlay: Option<OverlayType>,
     settings: Settings,
+    control_config: ControlConfig,
 }
 impl GameState {
     pub fn new() -> Self {
@@ -70,6 +88,7 @@ impl GameState {
             paused: false,
             overlay: None,
             settings: Settings::new(),
+            control_config: ControlConfig::new(),
         };
         game_state.respawn();
         game_state
@@ -310,6 +329,20 @@ impl GameState {
     pub fn set_last_winner(&mut self, team_id: SnakeTeam) {
         self.score_board.last_winner = Some(team_id);
     }
+    pub fn set_click_type(&mut self, click_type: ClickType) {
+        self.control_config.click_type = click_type;
+        self.needs_save = true;
+    }
+    pub fn toggle_click_type(&mut self) {
+        self.control_config.click_type = match self.control_config.click_type {
+            ClickType::Normal => ClickType::Toggle(false),
+            ClickType::Toggle(_) => ClickType::Normal,
+        };
+        self.needs_save = true;
+    }
+    pub fn click_type(&self) -> ClickType {
+        self.control_config.click_type
+    }
 
     pub fn check(&mut self) -> Vec<NetworkAction> {
         let actions = self.current_screen.check(&self.player);
@@ -353,6 +386,7 @@ impl GameState {
                 GameAction::SetColScheme(scheme) => self.player.snake_mut().set_scheme(scheme),
                 GameAction::CycleColScheme => self.player.snake_mut().cycle_scheme(),
                 GameAction::ToggleLeadingTrail => self.player.snake_mut().toggle_leading_trail(),
+                GameAction::ToggleClickType => self.toggle_click_type(),
                 GameAction::AdjustNodeCount(n) => {
                     for _ in 0..(n.abs()) {
                         if n < 0 {

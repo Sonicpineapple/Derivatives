@@ -271,6 +271,12 @@ impl WorldDefinition {
                             vec![GameAction::ToggleLeadingTrail],
                             "Leading\nTrail".to_string(),
                         ),
+                        ZoneDefinition::option(
+                            pos_rt(unit, 0.),
+                            zone_rad,
+                            vec![GameAction::ToggleClickType],
+                            "Click Type".to_string(),
+                        ),
                     ],
                     vec![],
                     Spawner::default(),

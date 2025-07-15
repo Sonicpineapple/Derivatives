@@ -16,6 +16,7 @@ pub enum GameAction {
     SetColScheme(ColScheme),
     CycleColScheme,
     ToggleLeadingTrail,
+    ToggleClickType,
     AdjustNodeCount(isize),
     AdjustArenaOrder(isize),
 }
