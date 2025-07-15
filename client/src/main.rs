@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use eframe::egui;
-use egui::{pos2, vec2, Pos2, Vec2};
+use egui::{vec2, Pos2, Vec2};
 use laminar::{Packet, Socket, SocketEvent};
 use std::{
     net::ToSocketAddrs,
@@ -19,9 +19,9 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     eframe::run_native(
-        "Window Title",
+        "Derivatives",
         native_options,
-        Box::new(|cc| Box::new(App::new(cc))),
+        Box::new(|cc| Ok(Box::new(App::new(cc)))),
     )
 }
 
@@ -407,9 +407,35 @@ fn draw_zone(
     ui.painter()
         .circle_stroke(centre, radius, (edge_width, get_col(zone.current_col())));
     if let Some(label) = zone.label() {
+        // let mut font_id = egui::TextStyle::Body.resolve(ui.style());
+        // font_id.size = label_size;
+        // let color = ui.visuals().text_color();
+        // let mut job = egui::text::LayoutJob::simple_singleline(label.to_owned(), font_id, color);
+        // job.halign = egui::Align::Center;
+        // job.justify = false;
+
+        // ui.allocate_ui_at_rect(
+        //     egui::Rect::from_center_size(centre, (2. * (radius - edge_width)) * vec2(1., 1.)),
+        //     |ui| {
+        //         ui.with_layout(
+        //             egui::Layout {
+        //                 main_dir: egui::Direction::LeftToRight,
+        //                 main_wrap: true,
+        //                 main_align: egui::Align::Center,
+        //                 main_justify: false,
+        //                 cross_align: egui::Align::Center,
+        //                 cross_justify: true,
+        //             },
+        //             |ui| {
+        //                 ui.label(egui::RichText::new(label).size(label_size));
+        //             },
+        //         )
+        //     },
+        // );
         ui.put(
             egui::Rect::from_center_size(centre, (2. * (radius - edge_width)) * vec2(1., 1.)),
             egui::widgets::Label::new(egui::RichText::new(label).size(label_size)),
+            // egui::widgets::Label::new(job),
         );
     }
 }

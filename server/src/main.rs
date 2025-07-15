@@ -80,6 +80,14 @@ fn server() -> Result<(), ErrorKind> {
                                         lobbies.entry(lobby_id.clone()).or_insert(Lobby::new());
                                     lobby.players.push(client_id);
                                     client_lobbies.entry(client_id).or_insert(lobby_id.clone());
+
+                                    sender
+                                        .send(Packet::reliable_unordered(
+                                            packet.addr(),
+                                            Message::SetArenaOrder(lobby.arena_order).ser(),
+                                        ))
+                                        .expect("This should send");
+
                                     for &id in &lobby.players {
                                         let addr = *clients.get_by_left(&id).expect("Bad id");
                                         if addr != packet.addr() {
@@ -98,6 +106,7 @@ fn server() -> Result<(), ErrorKind> {
                                         }
                                     }
                                     println!("Id {} joined lobby {}", client_id, lobby_id);
+
                                     if lobby.game_in_progress {
                                         lobby.teams.insert(client_id, SnakeTeam::Spectator);
                                         println!("Id {} joined team {}", client_id, 0);
