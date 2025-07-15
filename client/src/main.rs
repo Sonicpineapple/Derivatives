@@ -1,7 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use eframe::egui;
-use egui::{vec2, Pos2, Vec2};
+use eframe::egui::{
+    vec2, Align, Align2, Button, CentralPanel, Color32, Context, FontId, Key, Label, Layout, Pos2,
+    Rect, RichText, TextEdit, Ui, Vec2,
+};
 use laminar::{Packet, Socket, SocketEvent};
 use std::{
     net::ToSocketAddrs,
@@ -284,7 +286,7 @@ impl App {
         }
     }
 
-    fn draw_state(&mut self, ui: &mut egui::Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
+    fn draw_state(&mut self, ui: &mut Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
         let game_state = &mut self.game_state.lock().unwrap();
         let screen = game_state.screen();
         for text in screen.texts() {
@@ -313,21 +315,18 @@ impl App {
             };
         draw_snake(game_state.snake(), ui, trans, unit, gamma_mult);
         if game_state.is_paused() {
-            ui.painter().rect_filled(
-                ui.painter().clip_rect(),
-                0.,
-                egui::Color32::from_black_alpha(128),
-            );
+            ui.painter()
+                .rect_filled(ui.painter().clip_rect(), 0., Color32::from_black_alpha(128));
             ui.painter().text(
-                ui.clip_rect().center() + egui::vec2(0., -ui.clip_rect().height() / 3.),
-                egui::Align2::CENTER_CENTER,
+                ui.clip_rect().center() + vec2(0., -ui.clip_rect().height() / 3.),
+                Align2::CENTER_CENTER,
                 "PAUSED",
-                egui::FontId::monospace(50.),
-                egui::Color32::GRAY,
+                FontId::monospace(50.),
+                Color32::GRAY,
             );
             ui.painter().text(
                 ui.clip_rect().min,
-                egui::Align2::LEFT_TOP,
+                Align2::LEFT_TOP,
                 format!(
                     "Click type: {}",
                     match game_state.click_type() {
@@ -335,41 +334,35 @@ impl App {
                         ClickType::Toggle(t) => format!("Toggle {}", if t { "On" } else { "Off" }),
                     }
                 ),
-                egui::FontId::monospace(25.),
-                egui::Color32::GRAY,
+                FontId::monospace(25.),
+                Color32::GRAY,
             );
             if let Some(overlay) = game_state.overlay() {
                 match overlay {
                     derivatives_core::OverlayType::LobbySelect => {
-                        let rect = egui::Rect::from_center_size(
+                        let rect = Rect::from_center_size(
                             ui.clip_rect().center(),
                             ui.clip_rect().size() / 3.,
                         );
-                        ui.painter().rect_filled(
-                            rect,
-                            5.,
-                            egui::Color32::DARK_GRAY.gamma_multiply(0.4),
-                        );
+                        ui.painter()
+                            .rect_filled(rect, 5., Color32::DARK_GRAY.gamma_multiply(0.4));
                         let mut network_config = self.network_config.lock().unwrap();
                         ui.allocate_ui_at_rect(rect.shrink(10.), |ui| {
                             ui.horizontal(|ui| {
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Min),
-                                    |ui| {
-                                        if ui.add(egui::Button::new("🗙")).clicked() {
-                                            game_state.toggle_paused();
-                                        }
-                                    },
-                                );
+                                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                                    if ui.add(Button::new("🗙")).clicked() {
+                                        game_state.toggle_paused();
+                                    }
+                                });
                             });
-                            ui.add(egui::Label::new("Lobby Name"));
+                            ui.add(Label::new("Lobby Name"));
                             ui.add(
-                                egui::TextEdit::singleline(&mut network_config.lobby_id)
+                                TextEdit::singleline(&mut network_config.lobby_id)
                                     .hint_text("Main"),
                             );
-                            ui.add(egui::Label::new("Server IP"));
+                            ui.add(Label::new("Server IP"));
                             ui.add(
-                                egui::TextEdit::singleline(&mut network_config.server_ip)
+                                TextEdit::singleline(&mut network_config.server_ip)
                                     .hint_text("1.2.3.4:12345"),
                             );
                             if ui.button("Confirm").clicked() {
@@ -393,7 +386,7 @@ fn inv_transform(pos: Pos2, transform: (f32, Vec2)) -> Pos2 {
 
 fn draw_hazard(
     hazard: &derivatives_core::Hazard,
-    ui: &mut egui::Ui,
+    ui: &mut Ui,
     trans: &dyn Fn(Pos2) -> Pos2,
     unit: f32,
 ) {
@@ -402,12 +395,7 @@ fn draw_hazard(
     ui.painter()
         .circle_filled(centre, radius, get_col(hazard.col()));
 }
-fn draw_zone(
-    zone: &derivatives_core::Zone,
-    ui: &mut egui::Ui,
-    trans: &dyn Fn(Pos2) -> Pos2,
-    unit: f32,
-) {
+fn draw_zone(zone: &derivatives_core::Zone, ui: &mut Ui, trans: &dyn Fn(Pos2) -> Pos2, unit: f32) {
     let centre = trans(zone.centre());
     let radius = zone.radius() * unit;
     let edge_width = unit / 50.;
@@ -455,15 +443,15 @@ fn draw_zone(
         //     },
         // );
         ui.put(
-            egui::Rect::from_center_size(centre, (2. * (radius - edge_width)) * vec2(1., 1.)),
-            egui::widgets::Label::new(egui::RichText::new(label).size(label_size)),
+            Rect::from_center_size(centre, (2. * (radius - edge_width)) * vec2(1., 1.)),
+            Label::new(RichText::new(label).size(label_size)),
             // egui::widgets::Label::new(job),
         );
     }
 }
 fn draw_snake(
     snake: &Snake,
-    ui: &mut egui::Ui,
+    ui: &mut Ui,
     trans: &dyn Fn(Pos2) -> Pos2,
     unit: f32,
     gamma_mult: f32,
@@ -509,7 +497,7 @@ fn draw_snake(
 fn draw_text(
     game_state: &GameState,
     text: &Text,
-    ui: &mut egui::Ui,
+    ui: &mut Ui,
     trans: &dyn Fn(Pos2) -> Pos2,
     unit: f32,
 ) {
@@ -541,27 +529,23 @@ fn draw_text(
         _ => ColSingle::DarkGrey,
     });
     ui.put(
-        egui::Rect::from_center_size(trans(text.position()), vec2(1., 1.) * (unit)),
-        egui::widgets::Label::new(
-            egui::RichText::new(real_text)
-                .color(col)
-                .size(unit * text.size()),
-        ),
+        Rect::from_center_size(trans(text.position()), vec2(1., 1.) * (unit)),
+        Label::new(RichText::new(real_text).color(col).size(unit * text.size())),
     );
 }
-fn get_col(col: ColSingle) -> egui::Color32 {
+fn get_col(col: ColSingle) -> Color32 {
     match col {
-        ColSingle::LightRed => egui::Color32::LIGHT_RED,
-        ColSingle::LightGreen => egui::Color32::LIGHT_GREEN,
-        ColSingle::LightBlue => egui::Color32::LIGHT_BLUE,
-        ColSingle::DarkGrey => egui::Color32::DARK_GRAY,
-        ColSingle::DarkRed => egui::Color32::DARK_RED,
-        ColSingle::DarkBlue => egui::Color32::DARK_BLUE,
-        ColSingle::Gold => egui::Color32::GOLD,
-        ColSingle::Black => egui::Color32::BLACK,
+        ColSingle::LightRed => Color32::LIGHT_RED,
+        ColSingle::LightGreen => Color32::LIGHT_GREEN,
+        ColSingle::LightBlue => Color32::LIGHT_BLUE,
+        ColSingle::DarkGrey => Color32::DARK_GRAY,
+        ColSingle::DarkRed => Color32::DARK_RED,
+        ColSingle::DarkBlue => Color32::DARK_BLUE,
+        ColSingle::Gold => Color32::GOLD,
+        ColSingle::Black => Color32::BLACK,
     }
 }
-fn get_scheme(scheme: ColScheme) -> Box<dyn Fn(usize, usize) -> egui::Color32> {
+fn get_scheme(scheme: ColScheme) -> Box<dyn Fn(usize, usize) -> Color32> {
     Box::new(match scheme {
         ColScheme::Sinebow => |i, n| colorous_to_egui(colorous::SINEBOW.eval_rational(i, n)),
         ColScheme::Reds => {
@@ -584,12 +568,12 @@ fn get_scheme(scheme: ColScheme) -> Box<dyn Fn(usize, usize) -> egui::Color32> {
         ColScheme::Warm => |i, n| colorous_to_egui(colorous::WARM.eval_rational(i, n)),
     })
 }
-fn colorous_to_egui(col: colorous::Color) -> egui::Color32 {
-    egui::Color32::from_rgb(col.r, col.g, col.b)
+fn colorous_to_egui(col: colorous::Color) -> Color32 {
+    Color32::from_rgb(col.r, col.g, col.b)
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         let mut game_state = self.game_state.lock().unwrap();
         if game_state.needs_save() {
             eframe::set_value(
@@ -616,10 +600,10 @@ impl eframe::App for App {
             game_state.set_saved()
         }
         if game_state.is_exiting() {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close)
+            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Close)
         }
         drop(game_state);
-        egui::CentralPanel::default().show(ctx, |ui| {
+        CentralPanel::default().show(ctx, |ui| {
             let mut game_state = self.game_state.lock().unwrap();
             ui.style_mut().interaction.selectable_labels = false;
             let rect = ui.available_rect_before_wrap();
@@ -632,8 +616,7 @@ impl eframe::App for App {
 
             // Controls
             {
-                if ui.input(|input| input.key_pressed(egui::Key::Escape)) && !game_state.is_arena()
-                {
+                if ui.input(|input| input.key_pressed(Key::Escape)) && !game_state.is_arena() {
                     game_state.toggle_paused()
                 }
                 if !game_state.is_paused() {

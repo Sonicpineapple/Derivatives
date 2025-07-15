@@ -726,7 +726,6 @@ dependencies = [
  "colorous",
  "derivatives_core",
  "eframe",
- "egui",
  "laminar",
 ]
 
